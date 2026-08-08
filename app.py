@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import time
 import pandas as pd
+import urllib.parse
 from datetime import datetime
 
 # ---------------- TELEGRAM BOT CONFIGURATION ----------------
@@ -13,14 +14,14 @@ TELEGRAM_CHAT_ID = "-1004370895879"
 ACCESS_CODE = "6777"
 
 # ⚙️ Page Setup
-st.set_page_config(page_title="WinGo Live Tracker V3", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="WinGo Live Tracker V4", page_icon="🚀", layout="wide")
 
-# 🔐 Password Authentication Logic
+# 🔐 Password Authentication
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
-    st.markdown("<h2 style='text-align: center;'>🔒 Security Check (V3)</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🔒 Security Check (V4)</h2>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         pwd = st.text_input("Access Code:", type="password")
@@ -32,8 +33,8 @@ if not st.session_state.authenticated:
                 st.error("❌ Incorrect Code! Access Denied.")
     st.stop()
 
-# 🧠 Initialize Session State
-if "init" not in st.session_state:
+# 🧠 BULLETPROOF SESSION STATE INIT (V4)
+if "v4_init" not in st.session_state:
     st.session_state.last_processed_issue = None
     st.session_state.status = "WAITING"
     st.session_state.bs_pred = None; st.session_state.bs_step = 0; st.session_state.bs_level = 1
@@ -43,7 +44,7 @@ if "init" not in st.session_state:
     st.session_state.hour_start_time = time.time()
     st.session_state.max_bs_level_hourly = 1
     st.session_state.max_color_level_hourly = 1
-    st.session_state.init = True
+    st.session_state.v4_init = True
 
 def send_telegram_signal(issue, bs_pred, bs_level, color_pred, color_level, prev_bs_res=None, prev_color_res=None):
     if not TELEGRAM_CHAT_ID: return
@@ -71,33 +72,34 @@ def fetch_data():
     ts = int(time.time() * 1000)
     target_url = f"https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json?ts={ts}"
     
-    # 🔥 Secret Weapon: खऱ्या मोबाईलचे Headers (Cloudflare ला फसवण्यासाठी)
+    # URL Encoding for Proxies
+    encoded_url = urllib.parse.quote(target_url, safe='')
+    
     headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://ar-lottery01.com/",
-        "Origin": "https://ar-lottery01.com"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json",
     }
     
-    # 1st Attempt: Direct with proper headers
-    try:
-        res = requests.get(target_url, headers=headers, timeout=5)
-        if res.status_code == 200: return res.json()
-    except: pass
-
-    # 2nd Attempt: Codetabs Proxy
-    try:
-        res = requests.get(f"https://api.codetabs.com/v1/proxy?quest={target_url}", headers=headers, timeout=8)
-        if res.status_code == 200: return res.json()
-    except: pass
+    # 🌍 Multi-Proxy Bypass Strategy
+    urls_to_try = [
+        target_url, # 1. Direct Try
+        f"https://api.allorigins.win/raw?url={encoded_url}", # 2. AllOrigins
+        f"https://corsproxy.io/?{encoded_url}", # 3. CorsProxy
+        f"https://thingproxy.freeboard.io/fetch/{target_url}" # 4. ThingProxy
+    ]
     
-    # 3rd Attempt: AllOrigins Proxy
-    try:
-        res = requests.get(f"https://api.allorigins.win/raw?url={target_url}", headers=headers, timeout=8)
-        if res.status_code == 200: return res.json()
-    except: pass
+    for url in urls_to_try:
+        try:
+            res = requests.get(url, headers=headers, timeout=8)
+            if res.status_code == 200:
+                data = res.json()
+                # Check if we got real data or proxy error HTML
+                if "data" in data or "list" in data:
+                    return data
+        except:
+            continue
 
-    return {"error": "WinGo Blocked All Requests (Headers & Proxies Failed)."}
+    return {"error": "WinGo Cloudflare Blocked All Requests (Even Proxies Failed)."}
 
 def update_strategy(records):
     if not records: return
@@ -120,21 +122,20 @@ def update_strategy(records):
         
         bs_res_status, color_res_status = None, None
         if st.session_state.status == "PREDICTING":
-            bs_win = (st.session_state.bs_pred == latest_bs)
-            color_win = (st.session_state.color_pred == latest_color)
+            bs_win = (st.session_state.bs_pred == latest_bs); color_win = (st.session_state.color_pred == latest_color)
             bs_res_status = f"{st.session_state.bs_pred} ✅ WIN" if bs_win else f"{st.session_state.bs_pred} ❌ FAIL"
             color_res_status = f"{st.session_state.color_pred} ✅ WIN" if color_win else f"{st.session_state.color_pred} ❌ FAIL"
             
             st.session_state.stats["total_trades"] += 1
-            if bs_win: st.session_state.stats["bs_win"] += 1
+            if bs_win: st.session_state.stats["bs_win"] += 1 
             else: st.session_state.stats["bs_fail"] += 1
-            if color_win: st.session_state.stats["color_win"] += 1
+            if color_win: st.session_state.stats["color_win"] += 1 
             else: st.session_state.stats["color_fail"] += 1
             
             st.session_state.history.append({
                 "Trade": st.session_state.stats["total_trades"], "Issue": latest_issue,
-                "B/S Level": f"L{st.session_state.bs_level}", "B/S Pred": st.session_state.bs_pred, "B/S Result": "✅ WIN" if bs_win else "❌ FAIL",
-                "Color Level": f"L{st.session_state.color_level}", "Color Pred": st.session_state.color_pred, "Color Result": "✅ WIN" if color_win else "❌ FAIL"
+                "B/S Level": f"L{st.session_state.bs_level}", "B/S Pred": st.session_state.bs_pred, "B/S Result": "✅" if bs_win else "❌",
+                "Color Level": f"L{st.session_state.color_level}", "Color Pred": st.session_state.color_pred, "Color Result": "✅" if color_win else "❌"
             })
             st.session_state.bs_level = 1 if bs_win else st.session_state.bs_level + 1
             st.session_state.color_level = 1 if color_win else st.session_state.color_level + 1
@@ -159,7 +160,7 @@ def update_strategy(records):
         st.session_state.last_processed_issue = latest_issue
 
 # --- Main App Execution ---
-st.title("🤖 Secure WinGo Tracker (V3)")
+st.title("🤖 Secure WinGo Tracker (V4)")
 st.markdown("---")
 
 data = fetch_data()

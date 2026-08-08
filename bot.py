@@ -14,12 +14,25 @@ def get_wingo_data():
     ts = int(time.time() * 1000)
     target_url = f"https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json?ts={ts}"
     
-    try:
-        res = cureq.get(target_url, impersonate="chrome110", timeout=15)
-        if res.status_code == 200:
-            return res.json()
-    except:
-        pass
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://ar-lottery01.com/"
+    }
+
+    # 🚀 Multi-Browser Stealth Mode (Cloudflare Bypass Trick)
+    browsers = ["safari15_5", "chrome120", "edge101", "chrome116", "safari15_3"]
+    
+    for browser in browsers:
+        try:
+            res = cureq.get(target_url, headers=headers, impersonate=browser, timeout=12)
+            if res.status_code == 200:
+                data = res.json()
+                if data:  # जर डेटा यशस्वीपणे मिळाला तर लगेच रिटर्न कर
+                    return data
+        except:
+            continue # जर हा ब्राउझर ब्लॉक झाला, तर पुढचा ब्राउझर ट्राय कर
+            
     return None
 
 def send_message(chat_id, text):
@@ -66,7 +79,7 @@ def main():
                     if text.startswith("/signal"):
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == SECRET_PASSWORD:
-                            send_message(chat_id, "⏳ Fetching secure live signal...")
+                            send_message(chat_id, "⏳ Fetching secure live signal... (Bypassing Security)")
                             wingo_data = get_wingo_data()
                             if wingo_data:
                                 records = wingo_data.get("data", []) or wingo_data.get("list", [])
@@ -79,7 +92,7 @@ def main():
                         else:
                             send_message(chat_id, "❌ Access Denied! Incorrect password.\nUse: `/signal 12345`")
         except Exception as e:
-            print(f"Error in bot: {e}")
+            pass
         time.sleep(2)
 
 # --- DUMMY WEB SERVER TO TRICK RENDER ---
@@ -94,14 +107,10 @@ def run_dummy_server():
     port = int(os.environ.get("PORT", 8080))
     server_address = ('', port)
     httpd = HTTPServer(server_address, DummyHandler)
-    print(f"🌐 Starting dummy server on port {port} for Render...")
     httpd.serve_forever()
 
 if __name__ == "__main__":
-    # Start the dummy server in the background
     server_thread = threading.Thread(target=run_dummy_server)
     server_thread.daemon = True
     server_thread.start()
-    
-    # Start the main Telegram bot
     main()

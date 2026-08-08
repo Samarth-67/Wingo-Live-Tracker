@@ -8,7 +8,7 @@ import threading
 # ---------------- TELEGRAM BOT CONFIGURATION ----------------
 TELEGRAM_BOT_TOKEN = "8886107397:AAHENOebGnrupxvGKqKh5cKC3SmujXJOV3w"
 SECRET_PASSWORD = "12345"
-TARGET_CHANNEL_ID = "-1004370895879"  # <--- तुझा चॅनेल आयडी
+TARGET_CHANNEL_ID = "-1004370895879"
 # ------------------------------------------------------------
 
 state = {
@@ -28,10 +28,11 @@ def get_wingo_data():
     target_url = f"https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json?ts={ts}"
     try:
         res = c_requests.get(target_url, impersonate="chrome120", timeout=10)
+        print(f"API Response Code: {res.status_code}")
         if res.status_code == 200:
             return res.json()
     except Exception as e:
-        print(f"Data fetch error: {e}")
+        print(f"API Fetch Error: {e}")
     return None
 
 def extract_records(data):
@@ -43,8 +44,11 @@ def extract_records(data):
 
 def check_and_send_signal():
     global state
-    records = extract_records(get_wingo_data())
-    if not records: return
+    data = get_wingo_data()
+    records = extract_records(data)
+    if not records:
+        print("No records found from API!")
+        return
 
     latest_item = records[0]
     latest_issue = str(latest_item.get("issueNumber") or latest_item.get("issue") or latest_item.get("period") or "-")
@@ -63,6 +67,7 @@ def check_and_send_signal():
         state["color_pred"] = latest_color
         state["color_step"] = 1
         state["status"] = "PREDICTING"
+        print(f"Base Issue Set: {latest_issue}")
         return
 
     if state["last_processed_issue"] != latest_issue:
@@ -128,15 +133,15 @@ def check_and_send_signal():
         )
 
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        s_requests.post(url, json={"chat_id": TARGET_CHANNEL_ID, "text": text, "parse_mode": "Markdown"}, timeout=5)
+        res = s_requests.post(url, json={"chat_id": TARGET_CHANNEL_ID, "text": text, "parse_mode": "Markdown"}, timeout=5)
+        print(f"Telegram Send Status: {res.status_code}")
 
-# 🌐 Fixed Dummy Web Server with HEAD method support
 class DummyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Cloud Bot with curl_cffi is Active 24/7!")
+        self.wfile.write(b"Cloud Bot Active!")
         
     def do_HEAD(self):
         self.send_response(200)
@@ -145,18 +150,14 @@ class DummyHandler(BaseHTTPRequestHandler):
 
 def run_dummy_server():
     port = int(os.environ.get("PORT", 8080))
-    server_address = ('', port)
-    httpd = HTTPServer(server_address, DummyHandler)
+    httpd = HTTPServer(('', port), DummyHandler)
     httpd.serve_forever()
 
 def main():
     global active_until, notified_sleep
+    threading.Thread(target=run_dummy_server, daemon=True).start()
     
-    server_thread = threading.Thread(target=run_dummy_server)
-    server_thread.daemon = True
-    server_thread.start()
-    
-    print("🤖 Cloud 24/7 Auto-Signal Bot with curl_cffi is running...")
+    print("Bot started successfully.")
     offset = 0
     
     while True:
@@ -164,8 +165,7 @@ def main():
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={offset}&timeout=2"
             response = s_requests.get(url, timeout=5)
             if response.status_code == 200:
-                data = response.json()
-                for result in data.get("result", []):
+                for result in response.json().get("result", []):
                     offset = result["update_id"] + 1
                     message = result.get("message", {})
                     chat_id = message.get("chat", {}).get("id")
@@ -176,25 +176,20 @@ def main():
                         if len(parts) == 2 and parts[1] == SECRET_PASSWORD:
                             active_until = time.time() + 3600
                             notified_sleep = False
-                            send_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-                            s_requests.post(send_url, json={"chat_id": chat_id, "text": "✅ *Bot Activated for 1 Hour with Direct Cloud Bypass!*"}, timeout=5)
+                            print("Timer activated via Telegram command.")
+                            s_requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json={"chat_id": chat_id, "text": "✅ *Bot Activated for 1 Hour on Cloud Server!*"}, timeout=5)
                         else:
-                            err_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-                            s_requests.post(err_url, json={"chat_id": chat_id, "text": "❌ Access Denied!", "parse_mode": "Markdown"}, timeout=5)
+                            s_requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json={"chat_id": chat_id, "text": "❌ Access Denied!", "parse_mode": "Markdown"}, timeout=5)
             
-            current_time = time.time()
-            if active_until > 0 and current_time < active_until:
+            if active_until > 0 and time.time() < active_until:
                 check_and_send_signal()
-            elif active_until > 0 and current_time >= active_until:
+            elif active_until > 0 and time.time() >= active_until:
                 if not notified_sleep:
-                    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-                    msg = "💤 *1 Hour Session Completed!*\nBot is now in sleep mode."
-                    s_requests.post(url, json={"chat_id": TARGET_CHANNEL_ID, "text": msg, "parse_mode": "Markdown"}, timeout=5)
+                    s_requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json={"chat_id": TARGET_CHANNEL_ID, "text": "💤 *1 Hour Session Completed!*", "parse_mode": "Markdown"}, timeout=5)
                     notified_sleep = True
                     active_until = 0
-
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Main loop error: {e}")
         
         time.sleep(3)
 

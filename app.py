@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import cloudscraper
 import time
 import pandas as pd
 from datetime import datetime
@@ -10,7 +11,7 @@ TELEGRAM_CHAT_ID = "-1004370895879"
 # ------------------------------------------------------------
 
 # 🔒 SECURITY CONFIGURATION
-ACCESS_CODE = "6777" # <--- तुमचा पासवर्ड
+ACCESS_CODE = "12345" # <--- तुमचा पासवर्ड
 
 # ⚙️ Page Setup
 st.set_page_config(page_title="WinGo Live Tracker", page_icon="🚀", layout="wide")
@@ -78,16 +79,13 @@ def send_hourly_telegram_report():
 
 def fetch_data():
     url = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
-    # 🔥 Anti-Bot Headers (ब्राउझरसारखे दिसण्यासाठी)
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Connection": "keep-alive"
-    }
     params = {"ts": int(time.time() * 1000)}
+    
+    # 🔥 CLOUDSCRAPER: Cloudflare/403 Error Bypass
+    scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True})
+    
     try:
-        res = requests.get(url, headers=headers, params=params, timeout=10)
+        res = scraper.get(url, params=params, timeout=15)
         if res.status_code == 200:
             return res.json()
         else:
@@ -162,10 +160,8 @@ st.markdown("---")
 data = fetch_data()
 records = []
 
-# 🔥 ERROR CHECKING LOGIC
 if isinstance(data, dict) and "error" in data:
     st.error(f"⚠️ API Error: {data['error']}")
-    st.warning("WinGo is blocking the Cloud IP. We may need to use Cloudscraper.")
 else:
     records = data.get("data", []) if data else (data.get("list", []) if data else [])
     if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict) and "list" in data["data"]:

@@ -11,7 +11,7 @@ TELEGRAM_CHAT_ID = "-1004370895879"
 # ------------------------------------------------------------
 
 # 🔒 SECURITY CONFIGURATION
-ACCESS_CODE = "12345" # <--- तुमचा पासवर्ड
+ACCESS_CODE = "6777" # <--- तुमचा पासवर्ड
 
 # ⚙️ Page Setup
 st.set_page_config(page_title="WinGo Live Tracker", page_icon="🚀", layout="wide")

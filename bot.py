@@ -1,6 +1,6 @@
 import time
-import requests
-import urllib.parse
+from curl_cffi import requests as c_requests
+import requests as s_requests
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
@@ -26,33 +26,13 @@ notified_sleep = True
 def get_wingo_data():
     ts = int(time.time() * 1000)
     target_url = f"https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json?ts={ts}"
-    encoded_url = urllib.parse.quote(target_url, safe='')
-
-    # 🚀 Cloudflare Bypass via Free Proxies (Cloud Friendly)
-    proxy_urls = [
-        f"https://api.codetabs.com/v1/proxy?quest={target_url}",
-        f"https://api.allorigins.win/raw?url={encoded_url}",
-        f"https://corsproxy.io/?{encoded_url}"
-    ]
-    
-    for p_url in proxy_urls:
-        try:
-            res = requests.get(p_url, timeout=8)
-            if res.status_code == 200:
-                data = res.json()
-                if isinstance(data, dict) and ("data" in data or "list" in data):
-                    return data
-        except:
-            continue
-            
-    # Fallback direct request
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Accept": "application/json", "Referer": "https://ar-lottery01.com/"}
     try:
-        res = requests.get(target_url, headers=headers, timeout=8)
+        # 🚀 Direct Cloudflare Bypass using curl_cffi on Linux Cloud
+        res = c_requests.get(target_url, impersonate="chrome120", timeout=10)
         if res.status_code == 200:
             return res.json()
-    except:
-        pass
+    except Exception as e:
+        print(f"Data fetch error: {e}")
     return None
 
 def extract_records(data):
@@ -149,7 +129,7 @@ def check_and_send_signal():
         )
 
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        requests.post(url, json={"chat_id": TARGET_CHANNEL_ID, "text": text, "parse_mode": "Markdown"}, timeout=5)
+        s_requests.post(url, json={"chat_id": TARGET_CHANNEL_ID, "text": text, "parse_mode": "Markdown"}, timeout=5)
 
 # 🌐 Dummy Web Server to keep Render cloud alive 24/7
 class DummyHandler(BaseHTTPRequestHandler):
@@ -157,7 +137,7 @@ class DummyHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Cloud Bot is Active 24/7!")
+        self.wfile.write(b"Cloud Bot with curl_cffi is Active 24/7!")
 
 def run_dummy_server():
     port = int(os.environ.get("PORT", 8080))
@@ -168,18 +148,17 @@ def run_dummy_server():
 def main():
     global active_until, notified_sleep
     
-    # Start Web Server Thread
     server_thread = threading.Thread(target=run_dummy_server)
     server_thread.daemon = True
     server_thread.start()
     
-    print("🤖 Cloud 24/7 Auto-Signal Bot is running...")
+    print("🤖 Cloud 24/7 Auto-Signal Bot with curl_cffi is running...")
     offset = 0
     
     while True:
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={offset}&timeout=2"
-            response = requests.get(url, timeout=5)
+            response = s_requests.get(url, timeout=5)
             if response.status_code == 200:
                 data = response.json()
                 for result in data.get("result", []):
@@ -194,10 +173,10 @@ def main():
                             active_until = time.time() + 3600
                             notified_sleep = False
                             send_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-                            requests.post(send_url, json={"chat_id": chat_id, "text": "✅ *Bot Activated for 1 Hour on Cloud Server!*"}, timeout=5)
+                            s_requests.post(send_url, json={"chat_id": chat_id, "text": "✅ *Bot Activated for 1 Hour with Direct Cloud Bypass!*"}, timeout=5)
                         else:
                             err_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-                            requests.post(err_url, json={"chat_id": chat_id, "text": "❌ Access Denied!", "parse_mode": "Markdown"}, timeout=5)
+                            s_requests.post(err_url, json={"chat_id": chat_id, "text": "❌ Access Denied!", "parse_mode": "Markdown"}, timeout=5)
             
             current_time = time.time()
             if active_until > 0 and current_time < active_until:
@@ -206,7 +185,7 @@ def main():
                 if not notified_sleep:
                     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
                     msg = "💤 *1 Hour Session Completed!*\nBot is now in sleep mode."
-                    requests.post(url, json={"chat_id": TARGET_CHANNEL_ID, "text": msg, "parse_mode": "Markdown"}, timeout=5)
+                    s_requests.post(url, json={"chat_id": TARGET_CHANNEL_ID, "text": msg, "parse_mode": "Markdown"}, timeout=5)
                     notified_sleep = True
                     active_until = 0
 

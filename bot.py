@@ -1,37 +1,48 @@
 import time
 import requests
 from curl_cffi import requests as cureq
+import urllib.parse
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os
 
 # ---------------- TELEGRAM BOT CONFIGURATION ----------------
 TELEGRAM_BOT_TOKEN = "8886107397:AAHENOebGnrupxvGKqKh5cKC3SmujXJOV3w"
-# ------------------------------------------------------------
 SECRET_PASSWORD = "12345"
+# ------------------------------------------------------------
 
 def get_wingo_data():
     ts = int(time.time() * 1000)
     target_url = f"https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json?ts={ts}"
-    
-    headers = {
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://ar-lottery01.com/"
-    }
+    encoded_url = urllib.parse.quote(target_url, safe='')
 
-    # 🚀 Multi-Browser Stealth Mode (Cloudflare Bypass Trick)
-    browsers = ["safari15_5", "chrome120", "edge101", "chrome116", "safari15_3"]
+    # 🚀 STEP 1: Try Free Unblocker Proxies (This hides Render's IP)
+    proxy_urls = [
+        f"https://api.codetabs.com/v1/proxy?quest={target_url}",
+        f"https://api.allorigins.win/raw?url={encoded_url}",
+        f"https://corsproxy.io/?{encoded_url}"
+    ]
     
-    for browser in browsers:
+    for p_url in proxy_urls:
         try:
-            res = cureq.get(target_url, headers=headers, impersonate=browser, timeout=12)
+            res = requests.get(p_url, timeout=10)
             if res.status_code == 200:
                 data = res.json()
-                if data:  # जर डेटा यशस्वीपणे मिळाला तर लगेच रिटर्न कर
+                if isinstance(data, dict) and ("data" in data or "list" in data):
                     return data
         except:
-            continue # जर हा ब्राउझर ब्लॉक झाला, तर पुढचा ब्राउझर ट्राय कर
+            continue
+            
+    # 🚀 STEP 2: Fallback to Chrome Impersonation if proxies fail
+    headers = {"Accept": "application/json", "Referer": "https://ar-lottery01.com/"}
+    browsers = ["chrome120", "safari15_5"]
+    for browser in browsers:
+        try:
+            res = cureq.get(target_url, headers=headers, impersonate=browser, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+        except:
+            continue
             
     return None
 
@@ -79,7 +90,7 @@ def main():
                     if text.startswith("/signal"):
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == SECRET_PASSWORD:
-                            send_message(chat_id, "⏳ Fetching secure live signal... (Bypassing Security)")
+                            send_message(chat_id, "⏳ Fetching secure live signal through Proxy...")
                             wingo_data = get_wingo_data()
                             if wingo_data:
                                 records = wingo_data.get("data", []) or wingo_data.get("list", [])
@@ -95,13 +106,12 @@ def main():
             pass
         time.sleep(2)
 
-# --- DUMMY WEB SERVER TO TRICK RENDER ---
 class DummyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Telegram Bot is Live and Running Successfully!")
+        self.wfile.write(b"Telegram Bot is Live!")
 
 def run_dummy_server():
     port = int(os.environ.get("PORT", 8080))

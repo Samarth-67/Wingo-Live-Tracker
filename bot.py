@@ -1,14 +1,12 @@
 import time
+import urllib.parse
 from curl_cffi import requests as c_requests
 import requests as s_requests
-import os
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import threading
 
 # ---------------- TELEGRAM BOT CONFIGURATION ----------------
 TELEGRAM_BOT_TOKEN = "8886107397:AAHENOebGnrupxvGKqKh5cKC3SmujXJOV3w"
 SECRET_PASSWORD = "12345"
-TARGET_CHANNEL_ID = "-1004370895879"
+TARGET_CHANNEL_ID = "-1004370895879"  # <--- तुझा चॅनेल आयडी
 # ------------------------------------------------------------
 
 state = {
@@ -26,13 +24,33 @@ notified_sleep = True
 def get_wingo_data():
     ts = int(time.time() * 1000)
     target_url = f"https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json?ts={ts}"
+    encoded_url = urllib.parse.quote(target_url, safe='')
+
+    # 1. Direct curl_cffi
     try:
-        res = c_requests.get(target_url, impersonate="chrome120", timeout=10)
-        print(f"API Response Code: {res.status_code}")
+        res = c_requests.get(target_url, impersonate="chrome120", timeout=8)
         if res.status_code == 200:
-            return res.json()
+            data = res.json()
+            if isinstance(data, dict) and ("data" in data or "list" in data):
+                return data
     except Exception as e:
-        print(f"API Fetch Error: {e}")
+        print(f"curl_cffi error: {e}")
+
+    # 2. Proxy Fallback
+    proxy_urls = [
+        f"https://api.codetabs.com/v1/proxy?quest={target_url}",
+        f"https://api.allorigins.win/raw?url={encoded_url}",
+        f"https://corsproxy.io/?{encoded_url}"
+    ]
+    for p_url in proxy_urls:
+        try:
+            res = s_requests.get(p_url, timeout=8)
+            if res.status_code == 200:
+                data = res.json()
+                if isinstance(data, dict) and ("data" in data or "list" in data):
+                    return data
+        except:
+            continue
     return None
 
 def extract_records(data):
@@ -46,9 +64,7 @@ def check_and_send_signal():
     global state
     data = get_wingo_data()
     records = extract_records(data)
-    if not records:
-        print("No records found from API!")
-        return
+    if not records: return
 
     latest_item = records[0]
     latest_issue = str(latest_item.get("issueNumber") or latest_item.get("issue") or latest_item.get("period") or "-")
@@ -67,7 +83,7 @@ def check_and_send_signal():
         state["color_pred"] = latest_color
         state["color_step"] = 1
         state["status"] = "PREDICTING"
-        print(f"Base Issue Set: {latest_issue}")
+        print(f"Base issue set: {latest_issue}")
         return
 
     if state["last_processed_issue"] != latest_issue:
@@ -133,31 +149,12 @@ def check_and_send_signal():
         )
 
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        res = s_requests.post(url, json={"chat_id": TARGET_CHANNEL_ID, "text": text, "parse_mode": "Markdown"}, timeout=5)
-        print(f"Telegram Send Status: {res.status_code}")
-
-class DummyHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/plain')
-        self.end_headers()
-        self.wfile.write(b"Cloud Bot Active!")
-        
-    def do_HEAD(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/plain')
-        self.end_headers()
-
-def run_dummy_server():
-    port = int(os.environ.get("PORT", 8080))
-    httpd = HTTPServer(('', port), DummyHandler)
-    httpd.serve_forever()
+        resp = s_requests.post(url, json={"chat_id": TARGET_CHANNEL_ID, "text": text, "parse_mode": "Markdown"}, timeout=5)
+        print(f"Signal sent! Status: {resp.status_code}")
 
 def main():
     global active_until, notified_sleep
-    threading.Thread(target=run_dummy_server, daemon=True).start()
-    
-    print("Bot started successfully.")
+    print("🤖 Flat Cloud Bot is running...")
     offset = 0
     
     while True:
@@ -176,8 +173,8 @@ def main():
                         if len(parts) == 2 and parts[1] == SECRET_PASSWORD:
                             active_until = time.time() + 3600
                             notified_sleep = False
-                            print("Timer activated via Telegram command.")
-                            s_requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json={"chat_id": chat_id, "text": "✅ *Bot Activated for 1 Hour on Cloud Server!*"}, timeout=5)
+                            print("Bot activated via Telegram!")
+                            s_requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json={"chat_id": chat_id, "text": "✅ *Bot Activated for 1 Hour on Cloud!*"}, timeout=5)
                         else:
                             s_requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", json={"chat_id": chat_id, "text": "❌ Access Denied!", "parse_mode": "Markdown"}, timeout=5)
             
@@ -189,7 +186,7 @@ def main():
                     notified_sleep = True
                     active_until = 0
         except Exception as e:
-            print(f"Main loop error: {e}")
+            print(f"Error: {e}")
         
         time.sleep(3)
 

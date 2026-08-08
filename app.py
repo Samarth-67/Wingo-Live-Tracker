@@ -12,11 +12,11 @@ TELEGRAM_CHAT_ID = "-1004370895879"
 
 ACCESS_CODE = "6777"
 
-st.set_page_config(page_title="WinGo Live Tracker V5", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="WinGo Live Tracker V6", page_icon="🚀", layout="wide")
 
 if "authenticated" not in st.session_state: st.session_state.authenticated = False
 if not st.session_state.authenticated:
-    st.markdown("<h2 style='text-align: center;'>🔒 Security Check (V5)</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🔒 Security Check (V6)</h2>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         pwd = st.text_input("Access Code:", type="password")
@@ -25,7 +25,7 @@ if not st.session_state.authenticated:
             else: st.error("❌ Incorrect Code! Access Denied.")
     st.stop()
 
-if "v5_init" not in st.session_state:
+if "v6_init" not in st.session_state:
     st.session_state.last_processed_issue = None
     st.session_state.status = "WAITING"
     st.session_state.bs_pred = None; st.session_state.bs_step = 0; st.session_state.bs_level = 1
@@ -35,7 +35,7 @@ if "v5_init" not in st.session_state:
     st.session_state.hour_start_time = time.time()
     st.session_state.max_bs_level_hourly = 1
     st.session_state.max_color_level_hourly = 1
-    st.session_state.v5_init = True
+    st.session_state.v6_init = True
 
 def send_telegram_signal(issue, bs_pred, bs_level, color_pred, color_level, prev_bs_res=None, prev_color_res=None):
     if not TELEGRAM_CHAT_ID: return
@@ -61,33 +61,32 @@ def send_hourly_telegram_report():
 def fetch_data():
     ts = int(time.time() * 1000)
     target_url = f"https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json?ts={ts}"
+    encoded_url = urllib.parse.quote(target_url, safe='')
     
-    # 🚀 THE MASTER TRICK: Pretend to be the WinGo Android Mobile App
-    app_headers = {
-        "User-Agent": "okhttp/4.10.0",  # This tells Cloudflare "I am a mobile app"
-        "Accept": "application/json",
-        "Connection": "Keep-Alive",
-        "Accept-Encoding": "gzip"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json"
     }
     
-    # 1. Direct App Bypass
-    try:
-        res = requests.get(target_url, headers=app_headers, timeout=8)
-        if res.status_code == 200:
-            data = res.json()
-            if "data" in data or "list" in data: return data
-    except: pass
+    # 🔥 Multi-Proxy Fallback List
+    proxy_urls = [
+        f"https://api.codetabs.com/v1/proxy?quest={target_url}",
+        f"https://api.allorigins.win/raw?url={encoded_url}",
+        f"https://corsproxy.io/?{encoded_url}",
+        target_url # Direct try last
+    ]
+    
+    for url in proxy_urls:
+        try:
+            res = requests.get(url, headers=headers, timeout=8)
+            if res.status_code == 200:
+                data = res.json()
+                if isinstance(data, dict) and ("data" in data or "list" in data):
+                    return data
+        except:
+            continue
 
-    # 2. Proxy App Bypass
-    encoded_url = urllib.parse.quote(target_url, safe='')
-    try:
-        res = requests.get(f"https://api.allorigins.win/raw?url={encoded_url}", headers=app_headers, timeout=8)
-        if res.status_code == 200:
-            data = res.json()
-            if "data" in data or "list" in data: return data
-    except: pass
-
-    return {"error": "STILL BLOCKED: Cloudflare IP ban is active on this server."}
+    return {"error": "All proxy routes bypassed or blocked by Cloudflare."}
 
 def update_strategy(records):
     if not records: return
@@ -148,7 +147,7 @@ def update_strategy(records):
         st.session_state.last_processed_issue = latest_issue
 
 # --- Main App Execution ---
-st.title("🤖 Secure WinGo Tracker (V5)")
+st.title("🤖 Secure WinGo Tracker (V6)")
 st.markdown("---")
 
 data = fetch_data()

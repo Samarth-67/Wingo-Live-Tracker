@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+from curl_cffi import requests as cureq
 import time
 import pandas as pd
 from datetime import datetime
@@ -77,29 +78,16 @@ def send_hourly_telegram_report():
     except: pass
 
 def fetch_data():
-    ts = int(time.time() * 1000)
-    target_url = f"https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json?ts={ts}"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    url = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
+    params = {"ts": int(time.time() * 1000)}
     
-    # 🔥 PROXY 1: AllOrigins Bypass
+    # 🔥 ULTIMATE WEAPON: curl_cffi (Perfect Chrome Impersonation)
     try:
-        res = requests.get(f"https://api.allorigins.win/raw?url={target_url}", headers=headers, timeout=8)
+        res = cureq.get(url, params=params, impersonate="chrome110", timeout=15)
         if res.status_code == 200: return res.json()
-    except: pass
-
-    # 🔥 PROXY 2: CorsProxy Bypass (जर पहिला फेल झाला तर)
-    try:
-        res = requests.get(f"https://corsproxy.io/?{target_url}", headers=headers, timeout=8)
-        if res.status_code == 200: return res.json()
-    except: pass
-    
-    # 🔥 DIRECT (शेवटचा प्रयत्न)
-    try:
-        res = requests.get(target_url, headers=headers, timeout=5)
-        if res.status_code == 200: return res.json()
-        return {"error": f"WinGo Blocked Request. Both Proxies Failed (Status: {res.status_code})"}
+        return {"error": f"WinGo Blocked Request (Status: {res.status_code})"}
     except Exception as e:
-        return {"error": f"All Connections Failed: {str(e)}"}
+        return {"error": f"Connection Failed: {str(e)}"}
 
 def update_strategy(records):
     if not records: return

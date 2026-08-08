@@ -10,31 +10,22 @@ TELEGRAM_BOT_TOKEN = "8886107397:AAHENOebGnrupxvGKqKh5cKC3SmujXJOV3w"
 TELEGRAM_CHAT_ID = "-1004370895879"
 # ------------------------------------------------------------
 
-# 🔒 SECURITY CONFIGURATION
 ACCESS_CODE = "6777"
 
-# ⚙️ Page Setup
-st.set_page_config(page_title="WinGo Live Tracker V4", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="WinGo Live Tracker V5", page_icon="🚀", layout="wide")
 
-# 🔐 Password Authentication
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-
+if "authenticated" not in st.session_state: st.session_state.authenticated = False
 if not st.session_state.authenticated:
-    st.markdown("<h2 style='text-align: center;'>🔒 Security Check (V4)</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🔒 Security Check (V5)</h2>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         pwd = st.text_input("Access Code:", type="password")
         if st.button("Unlock Dashboard", use_container_width=True):
-            if pwd == ACCESS_CODE:
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("❌ Incorrect Code! Access Denied.")
+            if pwd == ACCESS_CODE: st.session_state.authenticated = True; st.rerun()
+            else: st.error("❌ Incorrect Code! Access Denied.")
     st.stop()
 
-# 🧠 BULLETPROOF SESSION STATE INIT (V4)
-if "v4_init" not in st.session_state:
+if "v5_init" not in st.session_state:
     st.session_state.last_processed_issue = None
     st.session_state.status = "WAITING"
     st.session_state.bs_pred = None; st.session_state.bs_step = 0; st.session_state.bs_level = 1
@@ -44,16 +35,15 @@ if "v4_init" not in st.session_state:
     st.session_state.hour_start_time = time.time()
     st.session_state.max_bs_level_hourly = 1
     st.session_state.max_color_level_hourly = 1
-    st.session_state.v4_init = True
+    st.session_state.v5_init = True
 
 def send_telegram_signal(issue, bs_pred, bs_level, color_pred, color_level, prev_bs_res=None, prev_color_res=None):
     if not TELEGRAM_CHAT_ID: return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     text = f"🚀 *VS WINGO Signals 1 Minute* 🚀\n\n"
     if prev_bs_res and prev_color_res:
-        bs_won = "WIN" in prev_bs_res; color_won = "WIN" in prev_color_res
         text += f"🔄 *Last Trade Result:*\n📏 B/S: {prev_bs_res}\n🎨 Color: {prev_color_res}\n"
-        if bs_won and color_won: text += f"\n🔥🎉 *JACKPOT! BOTH WON!* 🎉🔥\n"
+        if "WIN" in prev_bs_res and "WIN" in prev_color_res: text += f"\n🔥🎉 *JACKPOT! BOTH WON!* 🎉🔥\n"
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
     text += f"🎟️ *New Issue:* {issue}\n\n📏 *Prediction:* {bs_pred}\n🎯 *Level:* L{bs_level}\n\n🎨 *Prediction Color:* {color_pred}\n🎯 *Level:* L{color_level}"
     try: requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown"}, timeout=5)
@@ -72,43 +62,41 @@ def fetch_data():
     ts = int(time.time() * 1000)
     target_url = f"https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json?ts={ts}"
     
-    # URL Encoding for Proxies
-    encoded_url = urllib.parse.quote(target_url, safe='')
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    # 🚀 THE MASTER TRICK: Pretend to be the WinGo Android Mobile App
+    app_headers = {
+        "User-Agent": "okhttp/4.10.0",  # This tells Cloudflare "I am a mobile app"
         "Accept": "application/json",
+        "Connection": "Keep-Alive",
+        "Accept-Encoding": "gzip"
     }
     
-    # 🌍 Multi-Proxy Bypass Strategy
-    urls_to_try = [
-        target_url, # 1. Direct Try
-        f"https://api.allorigins.win/raw?url={encoded_url}", # 2. AllOrigins
-        f"https://corsproxy.io/?{encoded_url}", # 3. CorsProxy
-        f"https://thingproxy.freeboard.io/fetch/{target_url}" # 4. ThingProxy
-    ]
-    
-    for url in urls_to_try:
-        try:
-            res = requests.get(url, headers=headers, timeout=8)
-            if res.status_code == 200:
-                data = res.json()
-                # Check if we got real data or proxy error HTML
-                if "data" in data or "list" in data:
-                    return data
-        except:
-            continue
+    # 1. Direct App Bypass
+    try:
+        res = requests.get(target_url, headers=app_headers, timeout=8)
+        if res.status_code == 200:
+            data = res.json()
+            if "data" in data or "list" in data: return data
+    except: pass
 
-    return {"error": "WinGo Cloudflare Blocked All Requests (Even Proxies Failed)."}
+    # 2. Proxy App Bypass
+    encoded_url = urllib.parse.quote(target_url, safe='')
+    try:
+        res = requests.get(f"https://api.allorigins.win/raw?url={encoded_url}", headers=app_headers, timeout=8)
+        if res.status_code == 200:
+            data = res.json()
+            if "data" in data or "list" in data: return data
+    except: pass
+
+    return {"error": "STILL BLOCKED: Cloudflare IP ban is active on this server."}
 
 def update_strategy(records):
     if not records: return
     latest_item = records[0]
     latest_issue = str(latest_item.get("issueNumber") or latest_item.get("issue") or latest_item.get("period") or "-")
-    latest_number_str = str(latest_item.get("number") or latest_item.get("drawNumber") or "-")
+    num_str = str(latest_item.get("number") or latest_item.get("drawNumber") or "-")
     
-    if latest_number_str.isdigit():
-        number = int(latest_number_str)
+    if num_str.isdigit():
+        number = int(num_str)
         latest_bs = "Big" if number >= 5 else "Small"; latest_color = "Red" if number % 2 == 0 else "Green"
     else: return
 
@@ -160,7 +148,7 @@ def update_strategy(records):
         st.session_state.last_processed_issue = latest_issue
 
 # --- Main App Execution ---
-st.title("🤖 Secure WinGo Tracker (V4)")
+st.title("🤖 Secure WinGo Tracker (V5)")
 st.markdown("---")
 
 data = fetch_data()

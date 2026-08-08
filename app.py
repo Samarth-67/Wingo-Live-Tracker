@@ -1,0 +1,251 @@
+import streamlit as st
+import requests
+import time
+import pandas as pd
+from datetime import datetime
+
+# ---------------- TELEGRAM BOT CONFIGURATION ----------------
+TELEGRAM_BOT_TOKEN = "8886107397:AAHENOebGnrupxvGKqKh5cKC3SmujXJOV3w"
+TELEGRAM_CHAT_ID = "-1004370895879"
+# ------------------------------------------------------------
+
+# 🔒 SECURITY CONFIGURATION
+ACCESS_CODE = "12345" # <--- तुमचा पासवर्ड इथे बदला
+
+# ⚙️ Page Setup
+st.set_page_config(page_title="WinGo Live Tracker", page_icon="🚀", layout="wide")
+
+# 🔐 Password Authentication Logic
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.markdown("<h2 style='text-align: center;'>🔒 Security Check</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center;'>Please enter the access code to view the live dashboard.</p>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        pwd = st.text_input("Access Code:", type="password")
+        if st.button("Unlock Dashboard", use_container_width=True):
+            if pwd == ACCESS_CODE:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("❌ Incorrect Code! Access Denied.")
+    st.stop() # हा कोड चुकीचा पासवर्ड असल्यास पुढचा डॅशबोर्ड लोड होण्यापासून थांबवतो
+
+# 🧠 Initialize Session State
+if "init" not in st.session_state:
+    st.session_state.last_processed_issue = None
+    st.session_state.status = "WAITING"
+    st.session_state.bs_pred = None
+    st.session_state.bs_step = 0
+    st.session_state.bs_level = 1
+    st.session_state.color_pred = None
+    st.session_state.color_step = 0
+    st.session_state.color_level = 1
+    st.session_state.history = []
+    st.session_state.stats = {"bs_win": 0, "bs_fail": 0, "color_win": 0, "color_fail": 0, "total_trades": 0}
+    
+    # Hourly Dropdown Tracking
+    st.session_state.hour_start_time = time.time()
+    st.session_state.max_bs_level_hourly = 1
+    st.session_state.max_color_level_hourly = 1
+    
+    st.session_state.init = True
+
+def send_telegram_signal(issue, bs_pred, bs_level, color_pred, color_level, prev_bs_res=None, prev_color_res=None):
+    if not TELEGRAM_CHAT_ID: return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    text = f"🚀 *VS WINGO Signals 1 Minute* 🚀\n\n"
+    
+    if prev_bs_res and prev_color_res:
+        bs_won = "WIN" in prev_bs_res
+        color_won = "WIN" in prev_color_res
+        text += f"🔄 *Last Trade Result:*\n"
+        text += f"📏 B/S: {prev_bs_res}\n"
+        text += f"🎨 Color: {prev_color_res}\n"
+        if bs_won and color_won:
+            text += f"\n🔥🎉 *JACKPOT! BOTH WON!* 🎉🔥\n"
+        text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
+        
+    text += (
+        f"🎟️ *New Issue:* {issue}\n\n"
+        f"📏 *Prediction:* {bs_pred}\n"
+        f"🎯 *Level:* L{bs_level}\n\n"
+        f"🎨 *Prediction Color:* {color_pred}\n"
+        f"🎯 *Level:* L{color_level}"
+    )
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown"}
+    try: requests.post(url, json=payload, timeout=5)
+    except: pass
+
+def send_hourly_telegram_report():
+    if not TELEGRAM_CHAT_ID: return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    text = (
+        f"⏱️ *HOURLY SYSTEM UPDATE* ⏱️\n"
+        f"➖➖➖➖➖➖➖➖➖➖\n"
+        f"📊 *Max Drawdown (Loss Level) Reached in Last Hour:*\n\n"
+        f"📏 *B/S Max Level:* L{st.session_state.max_bs_level_hourly}\n"
+        f"🎨 *Color Max Level:* L{st.session_state.max_color_level_hourly}\n\n"
+        f"📈 *Total Trades So Far:* {st.session_state.stats['total_trades']}\n"
+        f"➖➖➖➖➖➖➖➖➖➖"
+    )
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "Markdown"}
+    try: requests.post(url, json=payload, timeout=5)
+    except: pass
+
+def fetch_data():
+    url = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+    params = {"ts": int(time.time() * 1000)}
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=10)
+        if res.status_code == 200: return res.json()
+    except: return None
+    return None
+
+def update_strategy(records):
+    if not records: return
+    
+    latest_item = records[0]
+    latest_issue = str(latest_item.get("issueNumber") or latest_item.get("issue") or latest_item.get("period") or "-")
+    latest_number_str = str(latest_item.get("number") or latest_item.get("drawNumber") or "-")
+    
+    if latest_number_str.isdigit():
+        number = int(latest_number_str)
+        latest_bs = "Big" if number >= 5 else "Small"
+        latest_color = "Red" if number % 2 == 0 else "Green"
+    else: return
+
+    if st.session_state.last_processed_issue is None:
+        st.session_state.last_processed_issue = latest_issue
+        return
+
+    if st.session_state.last_processed_issue != latest_issue:
+        
+        # Track Max Levels before they change
+        if st.session_state.bs_level > st.session_state.max_bs_level_hourly:
+            st.session_state.max_bs_level_hourly = st.session_state.bs_level
+        if st.session_state.color_level > st.session_state.max_color_level_hourly:
+            st.session_state.max_color_level_hourly = st.session_state.color_level
+
+        bs_res_status, color_res_status = None, None
+        
+        if st.session_state.status == "PREDICTING":
+            bs_win = (st.session_state.bs_pred == latest_bs)
+            color_win = (st.session_state.color_pred == latest_color)
+            
+            bs_res_status = f"{st.session_state.bs_pred} ✅ WIN" if bs_win else f"{st.session_state.bs_pred} ❌ FAIL"
+            color_res_status = f"{st.session_state.color_pred} ✅ WIN" if color_win else f"{st.session_state.color_pred} ❌ FAIL"
+            
+            st.session_state.stats["total_trades"] += 1
+            if bs_win: st.session_state.stats["bs_win"] += 1
+            else: st.session_state.stats["bs_fail"] += 1
+            if color_win: st.session_state.stats["color_win"] += 1
+            else: st.session_state.stats["color_fail"] += 1
+            
+            st.session_state.history.append({
+                "Trade": st.session_state.stats["total_trades"],
+                "Issue": latest_issue,
+                "B/S Level": f"L{st.session_state.bs_level}",
+                "B/S Pred": st.session_state.bs_pred,
+                "B/S Result": "✅ WIN" if bs_win else "❌ FAIL",
+                "Color Level": f"L{st.session_state.color_level}",
+                "Color Pred": st.session_state.color_pred,
+                "Color Result": "✅ WIN" if color_win else "❌ FAIL"
+            })
+            
+            st.session_state.bs_level = 1 if bs_win else st.session_state.bs_level + 1
+            st.session_state.color_level = 1 if color_win else st.session_state.color_level + 1
+            
+        if st.session_state.status == "WAITING":
+            st.session_state.bs_pred = latest_bs
+            st.session_state.bs_step = 1
+            st.session_state.color_pred = latest_color
+            st.session_state.color_step = 1
+            st.session_state.status = "PREDICTING"
+        elif st.session_state.status == "PREDICTING":
+            if st.session_state.bs_step < 3: st.session_state.bs_step += 1
+            else:
+                st.session_state.bs_pred = "Small" if st.session_state.bs_pred == "Big" else "Big"
+                st.session_state.bs_step = 1
+            if st.session_state.color_step < 3: st.session_state.color_step += 1
+            else:
+                st.session_state.color_pred = "Green" if st.session_state.color_pred == "Red" else "Red"
+                st.session_state.color_step = 1
+        
+        # Check if 1 hour (3600 seconds) has passed
+        current_time = time.time()
+        if current_time - st.session_state.hour_start_time >= 3600:
+            send_hourly_telegram_report()
+            # Reset hourly tracking
+            st.session_state.hour_start_time = current_time
+            st.session_state.max_bs_level_hourly = 1
+            st.session_state.max_color_level_hourly = 1
+
+        next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
+        send_telegram_signal(
+            issue=next_issue, bs_pred=st.session_state.bs_pred, bs_level=st.session_state.bs_level,
+            color_pred=st.session_state.color_pred, color_level=st.session_state.color_level,
+            prev_bs_res=bs_res_status, prev_color_res=color_res_status
+        )
+        st.session_state.last_processed_issue = latest_issue
+
+# --- Main App Execution ---
+st.title("🤖 Secure WinGo Tracker Dashboard")
+st.markdown("---")
+
+data = fetch_data()
+records = data.get("data", []) if data else (data.get("list", []) if data else [])
+if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict) and "list" in data["data"]:
+    records = data["data"]["list"]
+
+if records:
+    update_strategy(records)
+
+# 🖥️ UI Dashboard Metrics
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Total Trades", st.session_state.stats["total_trades"])
+col2.metric("B/S Wins", f"{st.session_state.stats['bs_win']} W / {st.session_state.stats['bs_fail']} F")
+col3.metric("Color Wins", f"{st.session_state.stats['color_win']} W / {st.session_state.stats['color_fail']} F")
+# Showing max drawdown visually on dashboard
+col4.metric("Hourly Max Level (B/S | Color)", f"L{st.session_state.max_bs_level_hourly} | L{st.session_state.max_color_level_hourly}")
+
+st.markdown("### 🎯 Live Predictions")
+if st.session_state.status == "WAITING":
+    st.warning("👀 Waiting for the next Live Trade... Strategy will start shortly.")
+else:
+    next_issue = str(int(st.session_state.last_processed_issue) + 1) if st.session_state.last_processed_issue and st.session_state.last_processed_issue.isdigit() else "Next"
+    st.info(f"**Issue:** {next_issue}")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.success(f"📏 **B/S:** {st.session_state.bs_pred} (Circle {st.session_state.bs_step}/3) ➡️ **L{st.session_state.bs_level}**")
+    with c2:
+        st.error(f"🎨 **Color:** {st.session_state.color_pred} (Circle {st.session_state.color_step}/3) ➡️ **L{st.session_state.color_level}**")
+
+st.markdown("---")
+st.markdown("### 📊 Trade History (Last 10)")
+if st.session_state.history:
+    df_history = pd.DataFrame(st.session_state.history[-10:])
+    st.dataframe(df_history, use_container_width=True)
+else:
+    st.write("No trades yet.")
+
+st.markdown("### 🔥 Live Draw Results")
+if records:
+    display_records = []
+    for r in records[:5]:
+        issue = r.get("issueNumber") or r.get("issue") or r.get("period") or "-"
+        num = str(r.get("number") or r.get("drawNumber") or "-")
+        if num.isdigit():
+            val = int(num)
+            bs = "Big" if val >= 5 else "Small"
+            col = "🔴 Red" if val % 2 == 0 else "🟢 Green"
+        else: bs, col = "-", "-"
+        display_records.append({"Ticket Number": issue, "Number": num, "Color": col, "Big / Small": bs})
+    st.table(pd.DataFrame(display_records))
+
+time.sleep(2.5)
+st.rerun()

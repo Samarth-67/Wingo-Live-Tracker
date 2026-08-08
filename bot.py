@@ -150,7 +150,7 @@ def background_bot_loop():
                         
                         last_processed = issue
 
-                        # जर टायमर चालू असेल तर चॅनेलवर सिग्नल पाठवा (जुनेच डिझाईन)
+                        # जर टायमर चालू असेल तर चॅनेलवर सिग्नल पाठवा
                         if bot_state["active_until"] > 0 and time.time() < bot_state["active_until"]:
                             text = f"🚀 *VSR WINGO Signals 1 Minute* 🚀\n\n"
                             if bs_res_status and color_res_status:
@@ -246,3 +246,22 @@ HTML_TEMPLATE = """
     </script>
 </body>
 </html>
+"""
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route('/data')
+def get_data():
+    return jsonify(bot_state)
+
+if __name__ == '__main__':
+    t1 = threading.Thread(target=background_bot_loop, daemon=True)
+    t1.start()
+    
+    t2 = threading.Thread(target=telegram_listener, daemon=True)
+    t2.start()
+    
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)

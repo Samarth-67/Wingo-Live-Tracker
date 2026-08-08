@@ -2,7 +2,7 @@ import time
 import threading
 import os
 import requests
-from flask import Flask, render_template_string
+from flask import Flask, render_template_string, jsonify
 
 app = Flask(__name__)
 
@@ -91,13 +91,12 @@ def background_bot_loop():
             print("Loop error:", e)
         time.sleep(5)
 
-# सुंदर आणि मॉडर्न डॅशबोर्ड डिझाईन (HTML UI)
+# स्मूथ आणि विदाउट-रिफ्रेश मॉडर्न डॅशबोर्ड डिझाईन
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
     <title>VSR Wingo Live Dashboard</title>
-    <meta http-equiv="refresh" content="5">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; padding: 20px; }
@@ -107,40 +106,62 @@ HTML_TEMPLATE = """
         .metric { background: #334155; margin: 12px 0; padding: 15px; border-radius: 10px; font-size: 16px; text-align: left; display: flex; justify-content: space-between; align-items: center; }
         .highlight { color: #4ade80; font-weight: bold; font-size: 18px; }
         .result-box { background: #0f172a; margin-top: 15px; padding: 12px; border-radius: 8px; font-size: 13px; color: #cbd5e1; text-align: left; border-left: 4px solid #38bdf8; }
-        .jackpot { background: #eab308; color: #000; font-weight: bold; padding: 12px; border-radius: 8px; margin-top: 15px; font-size: 15px; animation: pulse 1.5s infinite; }
+        .jackpot { background: #eab308; color: #000; font-weight: bold; padding: 12px; border-radius: 8px; margin-top: 15px; font-size: 15px; display: none; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
     <div class="card">
         <h1>🚀 VSR WINGO Live Dashboard 🚀</h1>
-        <div class="subtitle">Auto-refreshing every 5 seconds (No Telegram Needed)</div>
+        <div class="subtitle">Real-time Live Sync (No Refresh Lag)</div>
         
-        <div class="metric"><span>🎟️ Next Issue:</span> <span class="highlight">{{ state.last_issue }}</span></div>
-        <div class="metric"><span>📏 Prediction B/S:</span> <span class="highlight">{{ state.bs_pred }} ({{ state.bs_level }})</span></div>
-        <div class="metric"><span>🎨 Prediction Color:</span> <span class="highlight">{{ state.color_pred }} ({{ state.color_level }})</span></div>
+        <div class="metric"><span>🎟️ Next Issue:</span> <span class="highlight" id="last_issue">Loading...</span></div>
+        <div class="metric"><span>📏 Prediction B/S:</span> <span class="highlight" id="bs_info">-</span></div>
+        <div class="metric"><span>🎨 Prediction Color:</span> <span class="highlight" id="color_info">-</span></div>
         
-        <div class="result-box">
-            <b>📊 Last Trade Status:</b><br>{{ state.last_result }}
+        <div class="result-box" id="last_result">
+            <b>📊 Last Trade Status:</b><br>Initializing...
         </div>
 
-        {% if state.jackpot %}
-        <div class="jackpot">🔥🎉 JACKPOT! BOTH WON! 🎉🔥</div>
-        {% endif %}
+        <div class="jackpot" id="jackpot_box">🔥🎉 JACKPOT! BOTH WON! 🎉🔥</div>
     </div>
+
+    <script>
+        function updateDashboard() {
+            fetch('/data')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('last_issue').innerText = data.last_issue;
+                    document.getElementById('bs_info').innerText = data.bs_pred + " (" + data.bs_level + ")";
+                    document.getElementById('color_info').innerText = data.color_pred + " (" + data.color_level + ")";
+                    document.getElementById('last_result').innerHTML = "<b>📊 Last Trade Status:</b><br>" + data.last_result;
+                    
+                    const jp = document.getElementById('jackpot_box');
+                    if (data.jackpot) {
+                        jp.style.display = 'block';
+                    } else {
+                        jp.style.display = 'none';
+                    }
+                }).catch(err => console.log(err));
+        }
+        setInterval(updateDashboard, 3000);
+        updateDashboard();
+    </script>
 </body>
 </html>
 """
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_TEMPLATE, state=bot_state)
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route('/data')
+def get_data():
+    return jsonify(bot_state)
 
 if __name__ == '__main__':
-    # बॅकग्राउंडला प्रेडिक्शन इंजिन सुरू करणे
     t = threading.Thread(target=background_bot_loop, daemon=True)
     t.start()
     
-    # Render साठी पोर्ट सेटिंग
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)

@@ -16,8 +16,9 @@ TARGET_CHANNEL_ID = "-1004370895879"  # <--- तुझा चॅनेल आय
 bot_state = {
     "last_issue": "Waiting for data...",
     "latest_number": "-",
-    "bs_pred": "-", "bs_level": "L1",
-    "color_pred": "-", "color_level": "L1",
+    "status": "WAITING",
+    "bs_pred": "-", "bs_step": 0, "bs_level_num": 1, "bs_level": "L1",
+    "color_pred": "-", "color_step": 0, "color_level_num": 1, "color_level": "L1",
     "last_result": "Bot is initializing...",
     "jackpot": False,
     "active_until": 0,
@@ -71,7 +72,7 @@ def telegram_listener():
                             bot_state["active_until"] = time.time() + 3600
                             bot_state["notified_sleep"] = False
                             print("✅ Bot activated via Telegram!")
-                            send_telegram_message(chat_id, "✅ *Bot Activated for 1 Hour on Termux!*")
+                            send_telegram_message(chat_id, "✅ *Bot Activated for 1 Hour with 3-Circle Strategy!*")
                         else:
                             send_telegram_message(chat_id, "❌ Access Denied!")
         except Exception as e:
@@ -81,10 +82,6 @@ def telegram_listener():
 def background_bot_loop():
     global bot_state
     last_processed = None
-    bs_pred = "Big"
-    color_pred = "Green"
-    bs_level = 1
-    color_level = 1
 
     while True:
         try:
@@ -101,55 +98,75 @@ def background_bot_loop():
 
                     if last_processed is None:
                         last_processed = issue
-                        bs_pred = actual_bs
-                        color_pred = actual_color
+                        # सिस्टीम चालू होताना पहिली प्रेडिक्शन सेट करणे
+                        bot_state["bs_pred"] = actual_bs
+                        bot_state["bs_step"] = 1
+                        bot_state["color_pred"] = actual_color
+                        bot_state["color_step"] = 1
+                        bot_state["status"] = "PREDICTING"
+
                     elif last_processed != issue:
-                        # रिझल्ट तपासणे
-                        bs_win = (bs_pred == actual_bs)
-                        color_win = (color_pred == actual_color)
+                        bs_res_status = None
+                        color_res_status = None
 
-                        bs_res_status = f"{bs_pred} {'✅ WIN' if bs_win else '❌ FAIL'}"
-                        color_res_status = f"{color_pred} {'✅ WIN' if color_win else '❌ FAIL'}"
+                        if bot_state["status"] == "PREDICTING":
+                            # रिझल्ट तपासणे
+                            bs_win = (bot_state["bs_pred"] == actual_bs)
+                            color_win = (bot_state["color_pred"] == actual_color)
 
-                        bot_state["last_result"] = f"Issue {last_processed} -> B/S: {bs_res_status} | Color: {color_res_status}"
-                        bot_state["jackpot"] = bs_win and color_win
+                            bs_res_status = f"{bot_state['bs_pred']} {'✅ WIN' if bs_win else '❌ FAIL'}"
+                            color_res_status = f"{bot_state['color_pred']} {'✅ WIN' if color_win else '❌ FAIL'}"
 
-                        if bs_win: bs_level = 1
-                        else: bs_level += 1
-                        if color_win: color_level = 1
-                        else: color_level += 1
+                            bot_state["last_result"] = f"Issue {last_processed} -> B/S: {bs_res_status} | Color: {color_res_status}"
+                            bot_state["jackpot"] = bs_win and color_win
 
-                        # पुढील प्रेडिक्शन लॉजिक
-                        bs_pred = "Small" if bs_pred == "Big" else "Big"
-                        color_pred = "Green" if color_pred == "Red" else "Red"
-                        
+                            # Level अपडेट करणे (जिंकले तर 1, हरले तर +1)
+                            if bs_win: bot_state["bs_level_num"] = 1
+                            else: bot_state["bs_level_num"] += 1
+                            
+                            if color_win: bot_state["color_level_num"] = 1
+                            else: bot_state["color_level_num"] += 1
+
+                            # 3-Circle स्ट्रॅटेजी (Step Rotation)
+                            if bot_state["bs_step"] < 3:
+                                bot_state["bs_step"] += 1
+                            else:
+                                bot_state["bs_pred"] = "Small" if bot_state["bs_pred"] == "Big" else "Big"
+                                bot_state["bs_step"] = 1
+
+                            if bot_state["color_step"] < 3:
+                                bot_state["color_step"] += 1
+                            else:
+                                bot_state["color_pred"] = "Green" if bot_state["color_pred"] == "Red" else "Red"
+                                bot_state["color_step"] = 1
+
                         next_issue = str(int(issue) + 1) if issue.isdigit() else "Next"
                         
                         # डॅशबोर्ड अपडेट करणे
                         bot_state["last_issue"] = next_issue
                         bot_state["latest_number"] = number
-                        bot_state["bs_pred"] = bs_pred
-                        bot_state["bs_level"] = f"L{bs_level}"
-                        bot_state["color_pred"] = color_pred
-                        bot_state["color_level"] = f"L{color_level}"
+                        bot_state["bs_level"] = f"L{bot_state['bs_level_num']}"
+                        bot_state["color_level"] = f"L{bot_state['color_level_num']}"
                         
                         last_processed = issue
 
-                        # जर टायमर चालू असेल तर चॅनेलवर सिग्नल पाठवा
+                        # जर टायमर चालू असेल तर चॅनेलवर सिग्नल पाठवा (जुनेच डिझाईन)
                         if bot_state["active_until"] > 0 and time.time() < bot_state["active_until"]:
                             text = f"🚀 *VSR WINGO Signals 1 Minute* 🚀\n\n"
-                            text += f"🔄 *Last Trade Result:*\n"
-                            text += f"📏 B/S: {bs_res_status}\n"
-                            text += f"🎨 Color: {color_res_status}\n\n"
-                            if bot_state["jackpot"]: 
-                                text += f"🔥🎉 *JACKPOT! BOTH WON!* 🎉🔥\n"
-                            text += f"➖➖➖➖➖➖➖➖\n\n"
+                            if bs_res_status and color_res_status:
+                                text += f"🔄 *Last Trade Result:*\n"
+                                text += f"📏 B/S: {bs_res_status}\n"
+                                text += f"🎨 Color: {color_res_status}\n\n"
+                                if bot_state["jackpot"]: 
+                                    text += f"🔥🎉 *JACKPOT! BOTH WON!* 🎉🔥\n"
+                                text += f"➖➖➖➖➖➖➖➖\n\n"
+                            
                             text += (
                                 f"🎟️ *New Issue:* {next_issue}\n\n"
-                                f"📏 *Prediction:* {bs_pred}\n"
-                                f"🎯 *Level:* L{bs_level}\n\n"
-                                f"🎨 *Prediction Color:* {color_pred}\n"
-                                f"🎯 *Level:* L{color_level}"
+                                f"📏 *Prediction:* {bot_state['bs_pred']}\n"
+                                f"🎯 *Level:* L{bot_state['bs_level_num']}\n\n"
+                                f"🎨 *Prediction Color:* {bot_state['color_pred']}\n"
+                                f"🎯 *Level:* L{bot_state['color_level_num']}"
                             )
                             send_telegram_message(TARGET_CHANNEL_ID, text)
                         elif bot_state["active_until"] > 0 and time.time() >= bot_state["active_until"]:
@@ -162,7 +179,7 @@ def background_bot_loop():
             print("Loop error:", e)
         time.sleep(5)
 
-# स्मूथ डॅशबोर्ड डिझाईन
+# डॅशबोर्ड डिझाईन (सेम ठेवली आहे)
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -172,7 +189,7 @@ HTML_TEMPLATE = """
     <style>
         body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; padding: 20px; }
         .card { background: #1e293b; border-radius: 16px; padding: 25px; max-width: 450px; margin: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
-        h1 { color: #38bdf8; font-size: 22px; margin-bottom: 5px; }
+        h1 { color: #38bdf8; font-size: 20px; margin-bottom: 5px; }
         .subtitle { color: #94a3b8; font-size: 12px; margin-bottom: 20px; }
         .metric { background: #334155; margin: 12px 0; padding: 15px; border-radius: 10px; font-size: 16px; text-align: left; display: flex; justify-content: space-between; align-items: center; }
         .highlight { color: #4ade80; font-weight: bold; font-size: 18px; }
@@ -229,24 +246,3 @@ HTML_TEMPLATE = """
     </script>
 </body>
 </html>
-"""
-
-@app.route('/')
-def index():
-    return render_template_string(HTML_TEMPLATE)
-
-@app.route('/data')
-def get_data():
-    return jsonify(bot_state)
-
-if __name__ == '__main__':
-    # बॅकग्राउंडला डेटा घेणारा बॉट
-    t1 = threading.Thread(target=background_bot_loop, daemon=True)
-    t1.start()
-    
-    # बॅकग्राउंडला टेलिग्राम मेसेज ऐकणारा बॉट
-    t2 = threading.Thread(target=telegram_listener, daemon=True)
-    t2.start()
-    
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)

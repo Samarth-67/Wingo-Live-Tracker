@@ -27,7 +27,6 @@ def get_wingo_data():
     ts = int(time.time() * 1000)
     target_url = f"https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json?ts={ts}"
     try:
-        # 🚀 Direct Cloudflare Bypass using curl_cffi on Linux Cloud
         res = c_requests.get(target_url, impersonate="chrome120", timeout=10)
         if res.status_code == 200:
             return res.json()
@@ -131,13 +130,18 @@ def check_and_send_signal():
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         s_requests.post(url, json={"chat_id": TARGET_CHANNEL_ID, "text": text, "parse_mode": "Markdown"}, timeout=5)
 
-# 🌐 Dummy Web Server to keep Render cloud alive 24/7
+# 🌐 Fixed Dummy Web Server with HEAD method support
 class DummyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
         self.wfile.write(b"Cloud Bot with curl_cffi is Active 24/7!")
+        
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
 
 def run_dummy_server():
     port = int(os.environ.get("PORT", 8080))

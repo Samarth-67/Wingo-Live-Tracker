@@ -1,18 +1,19 @@
 import time
 import requests
 from curl_cffi import requests as cureq
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import os
 
 # ---------------- TELEGRAM BOT CONFIGURATION ----------------
 TELEGRAM_BOT_TOKEN = "8886107397:AAHENOebGnrupxvGKqKh5cKC3SmujXJOV3w"
 # ------------------------------------------------------------
-
-SECRET_PASSWORD = "12345" # <--- तुमचा सिक्रेट पासवर्ड
+SECRET_PASSWORD = "12345"
 
 def get_wingo_data():
     ts = int(time.time() * 1000)
     target_url = f"https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json?ts={ts}"
     
-    # 🚀 Chrome Impersonation to bypass Cloudflare on Cloud Servers
     try:
         res = cureq.get(target_url, impersonate="chrome110", timeout=15)
         if res.status_code == 200:
@@ -74,12 +75,33 @@ def main():
                                 signal_text = calculate_prediction(records)
                                 send_message(chat_id, signal_text)
                             else:
-                                send_message(chat_id, "⚠️ Error: Cloudflare blocked the request. Retrying soon.")
+                                send_message(chat_id, "⚠️ Error: Cloudflare blocked the request. Try again.")
                         else:
-                            send_message(chat_id, "❌ Access Denied! Incorrect or missing password. Use format: `/signal [password]`")
+                            send_message(chat_id, "❌ Access Denied! Incorrect password.\nUse: `/signal 12345`")
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Error in bot: {e}")
         time.sleep(2)
 
+# --- DUMMY WEB SERVER TO TRICK RENDER ---
+class DummyHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b"Telegram Bot is Live and Running Successfully!")
+
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 8080))
+    server_address = ('', port)
+    httpd = HTTPServer(server_address, DummyHandler)
+    print(f"🌐 Starting dummy server on port {port} for Render...")
+    httpd.serve_forever()
+
 if __name__ == "__main__":
+    # Start the dummy server in the background
+    server_thread = threading.Thread(target=run_dummy_server)
+    server_thread.daemon = True
+    server_thread.start()
+    
+    # Start the main Telegram bot
     main()

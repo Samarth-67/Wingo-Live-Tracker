@@ -208,7 +208,7 @@ def worker_30s():
         if data:
             records = extract_records(data)
             process_strategy(state_30s, records)
-        time.sleep(2) # 30S fast loop
+        time.sleep(2)
 
 def worker_1m():
     url = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
@@ -217,7 +217,7 @@ def worker_1m():
         if data:
             records = extract_records(data)
             process_strategy(state_1m, records)
-        time.sleep(5) # 1M normal loop
+        time.sleep(5)
 
 # --- UI Renderer ---
 def render_game_panel(state):
@@ -231,7 +231,16 @@ def render_game_panel(state):
     panel_text += f"📊 [bold]W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/] | [bold]S:[/] [yellow]{state['stats']['bs_skip']}[/]\n"
     
     hist_table = Table(show_header=False, width=40)
-    for h in state["history"]: hist_table.add_row(h["issue"], h["bs_level"], h["bs_pred"], h["bs_res"])
+    hist_table.add_column("Issue", justify="center")
+    hist_table.add_column("Level", justify="center")
+    hist_table.add_column("Pred", justify="center")
+    hist_table.add_column("Res", justify="center")
+    
+    if not state["history"]:
+        hist_table.add_row("-", "-", "-", "-")
+    else:
+        for h in state["history"]: 
+            hist_table.add_row(str(h["issue"]), str(h["bs_level"]), str(h["bs_pred"]), str(h["bs_res"]))
     
     return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']}[/]", border_style="cyan", width=45)
 
@@ -249,7 +258,6 @@ if __name__ == "__main__":
         os.system('cls' if os.name == 'nt' else 'clear')
         console.print("[bold yellow]🚀 MASTER ALL-IN-ONE BOT (1M & 30S)[/bold yellow]\n")
         
-        # दोन्ही गेम्सचे डॅशबोर्ड एकाच वेळी दाखवणे
         p_30s = render_game_panel(state_30s)
         p_1m = render_game_panel(state_1m)
         

@@ -12,7 +12,6 @@ console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
 TELEGRAM_TOKEN = "8808901816:AAFTYigKQeeH5--jw6KDM_aAlsL9SIZCCXo" 
-TELEGRAM_CHAT_ID = "-1004423997140" 
 
 # 🔐 सिक्रेट पासवर्ड्स
 PASS_30S = "11111"  # ३० सेकंदाच्या गेमसाठी
@@ -28,6 +27,7 @@ def create_state(name, interval):
         "history": [],
         "stats": {"bs_win": 0, "bs_fail": 0, "bs_skip": 0, "total_trades": 0},
         "active_until": 0,       
+        "active_chat_id": None,   # जिथे पासवर्ड टाकला जाईल तो ग्रुप/चॅट आयडी इथे सेव्ह होईल
         "notified_sleep": True,
         "live_records": []
     }
@@ -36,6 +36,7 @@ state_30s = create_state("WinGo 30S", "30S")
 state_1m = create_state("WinGo 1M", "1M")
 
 def send_telegram_message_direct(chat_id, text):
+    if not chat_id: return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
         requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
@@ -61,12 +62,14 @@ def telegram_listener():
                             pwd = parts[1]
                             if pwd == PASS_30S:
                                 state_30s["active_until"] = time.time() + 3600
+                                state_30s["active_chat_id"] = chat_id # ज्या ग्रुपमधून कमांड आली तो सेव्ह केला
                                 state_30s["notified_sleep"] = False
-                                send_telegram_message_direct(chat_id, "✅ *[30S Strategy] Activated for 1 Hour!*")
+                                send_telegram_message_direct(chat_id, "✅ *[30S Strategy] Activated for 1 Hour in this Group!*")
                             elif pwd == PASS_1M:
                                 state_1m["active_until"] = time.time() + 3600
+                                state_1m["active_chat_id"] = chat_id # ज्या ग्रुपमधून कमांड आली तो सेव्ह केला
                                 state_1m["notified_sleep"] = False
-                                send_telegram_message_direct(chat_id, "✅ *[1M Strategy] Activated for 1 Hour!*")
+                                send_telegram_message_direct(chat_id, "✅ *[1M Strategy] Activated for 1 Hour in this Group!*")
                             else:
                                 send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
         except Exception:
@@ -74,7 +77,9 @@ def telegram_listener():
         time.sleep(3)
 
 def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
-    if not TELEGRAM_CHAT_ID: return
+    target_chat_id = state.get("active_chat_id")
+    if not target_chat_id: return
+
     game_name = state["name"]
     text = f"🚀 *VSR {game_name} Trend Follower* 🚀\n\n"
     
@@ -96,7 +101,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         text += f"📏 *Prediction:* ⏸️ *WAIT FOR PATTERN*\n"
         text += f"⚠️ *(Pending Level: L{bs_level})*\n\n"
     
-    send_telegram_message_direct(TELEGRAM_CHAT_ID, text)
+    send_telegram_message_direct(target_chat_id, text)
 
 def fetch_data(url):
     headers = {
@@ -189,7 +194,7 @@ def process_strategy(state, records):
             send_telegram_signal(state, next_issue, state["bs_pred"], state["bs_level"], bs_res_status)
         elif state["active_until"] > 0 and time.time() >= state["active_until"]:
             if not state["notified_sleep"]:
-                send_telegram_message_direct(TELEGRAM_CHAT_ID, f"💤 *1 Hour Session Completed ({state['name']})! Sleeping now.*")
+                send_telegram_message_direct(state["active_chat_id"], f"💤 *1 Hour Session Completed ({state['name']})! Sleeping now.*")
                 state["notified_sleep"] = True
                 state["active_until"] = 0
 

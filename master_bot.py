@@ -6,20 +6,19 @@ from rich.table import Table
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.align import Align
-from rich.layout import Layout
+from rich.live import Live
 
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-TELEGRAM_TOKEN = "8808901816:AAFTYigKQeeH5--jw6KDM_aAlsL9SIZCCXo" # तुझा नवीन मास्टर बॉट
-TELEGRAM_CHAT_ID = "1052834817" # तुझा पर्सनल चॅट ID
+TELEGRAM_TOKEN = "8808901816:AAFTYigKQeeH5--jw6KDM_aAlsL9SIZCCXo" 
+TELEGRAM_CHAT_ID = "1052834817" 
 
-# 🔐 सिक्रेट पासवर्ड्स (दोन वेगवेगळ्या गेम्ससाठी)
+# 🔐 सिक्रेट पासवर्ड्स
 PASS_30S = "11111"  # ३० सेकंदाच्या गेमसाठी
 PASS_1M = "22222"   # १ मिनिटाच्या गेमसाठी
 # ----------------------------------------
 
-# 🎯 STATES (दोन्ही गेम्सचा डेटा वेगळा ठेवण्यासाठी)
 def create_state(name, interval):
     return {
         "name": name,
@@ -44,7 +43,6 @@ def send_telegram_message_direct(chat_id, text):
         pass
 
 def telegram_listener():
-    """Background thread to listen for passwords and activate specific timers."""
     offset = 0
     while True:
         try:
@@ -77,7 +75,6 @@ def telegram_listener():
 
 def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     if not TELEGRAM_CHAT_ID: return
-
     game_name = state["name"]
     text = f"🚀 *VSR {game_name} Trend Follower* 🚀\n\n"
     
@@ -200,9 +197,8 @@ def process_strategy(state, records):
         return True
     return False
 
-# --- Background Workers ---
 def worker_30s():
-    url = "https://draw.ar-lottery01.com/WinGo/WinGo_30S.json"
+    url = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
     while True:
         data = fetch_data(url)
         if data:
@@ -219,7 +215,6 @@ def worker_1m():
             process_strategy(state_1m, records)
         time.sleep(5)
 
-# --- UI Renderer ---
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
     bs_color = "dark_orange" if state["bs_pred"] == "Big" else "bright_blue"
@@ -244,6 +239,14 @@ def render_game_panel(state):
     
     return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']}[/]", border_style="cyan", width=45)
 
+def create_master_ui():
+    p_30s = render_game_panel(state_30s)
+    p_1m = render_game_panel(state_1m)
+    return Group(
+        Align.center("[bold yellow]🚀 MASTER ALL-IN-ONE BOT (1M & 30S)[/bold yellow]\n"),
+        Align.center(Group(p_30s, p_1m))
+    )
+
 if __name__ == "__main__":
     t_list = threading.Thread(target=telegram_listener, daemon=True)
     t_30s = threading.Thread(target=worker_30s, daemon=True)
@@ -251,15 +254,7 @@ if __name__ == "__main__":
     
     t_list.start(); t_30s.start(); t_1m.start()
 
-    os.system('cls' if os.name == 'nt' else 'clear')
-    console.print("[bold yellow]🚀 MASTER ALL-IN-ONE BOT STARTED... Press Ctrl + C to stop.[/bold yellow]\n")
-    
-    while True:
-        os.system('cls' if os.name == 'nt' else 'clear')
-        console.print("[bold yellow]🚀 MASTER ALL-IN-ONE BOT (1M & 30S)[/bold yellow]\n")
-        
-        p_30s = render_game_panel(state_30s)
-        p_1m = render_game_panel(state_1m)
-        
-        console.print(Align.center(Group(p_30s, p_1m)))
-        time.sleep(2)
+    with Live(create_master_ui(), console=console, refresh_per_second=2, screen=False) as live:
+        while True:
+            live.update(create_master_ui())
+            time.sleep(1)

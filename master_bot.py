@@ -24,6 +24,13 @@ def create_state(name, interval):
         "interval": interval,
         "last_processed_issue": None,
         "bs_pred": None, "bs_level": 1, "bs_active": True, "bs_fails_in_row": 0,
+        
+        # --- NEW 3-CIRCLE STRATEGY VARIABLES ---
+        "mode": "normal",
+        "circle_current_target": None, 
+        "circle_count": 0,
+        # ---------------------------------------
+        
         "history": [],
         "stats": {"bs_win": 0, "bs_fail": 0, "bs_skip": 0, "total_trades": 0},
         "active_until": 0,       
@@ -62,12 +69,12 @@ def telegram_listener():
                             pwd = parts[1]
                             if pwd == PASS_30S:
                                 state_30s["active_until"] = time.time() + 3600
-                                state_30s["active_chat_id"] = chat_id # ज्या ग्रुपमधून कमांड आली तो सेव्ह केला
+                                state_30s["active_chat_id"] = chat_id
                                 state_30s["notified_sleep"] = False
                                 send_telegram_message_direct(chat_id, "✅ *[30S Strategy] Activated for 1 Hour in this Group!*")
                             elif pwd == PASS_1M:
                                 state_1m["active_until"] = time.time() + 3600
-                                state_1m["active_chat_id"] = chat_id # ज्या ग्रुपमधून कमांड आली तो सेव्ह केला
+                                state_1m["active_chat_id"] = chat_id
                                 state_1m["notified_sleep"] = False
                                 send_telegram_message_direct(chat_id, "✅ *[1M Strategy] Activated for 1 Hour in this Group!*")
                             else:
@@ -96,7 +103,8 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     if state["bs_active"]:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
         text += f"📏 *Prediction:* *{bs_pred_text}*\n"
-        text += f"🎯 *Level:* L{bs_level}\n\n"
+        mode_text = "(3-Circle Mode)" if state["mode"] == "3-circle" else ""
+        text += f"🎯 *Level:* L{bs_level} {mode_text}\n\n"
     else:
         text += f"📏 *Prediction:* ⏸️ *WAIT FOR PATTERN*\n"
         text += f"⚠️ *(Pending Level: L{bs_level})*\n\n"
@@ -162,14 +170,14 @@ def process_strategy(state, records):
                 state["stats"]["bs_win"] += 1
                 state["bs_level"] = 1 
                 state["bs_fails_in_row"] = 0 
+                state["mode"] = "normal"  # Reset back to normal mode on WIN
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
             else:
                 state["stats"]["bs_fail"] += 1
                 state["bs_level"] += 1
                 state["bs_fails_in_row"] += 1 
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
-                if state["bs_fails_in_row"] >= 4:
-                    state["bs_active"] = False
+                # (Removed the holding/skip logic when fails_in_row >= 4)
         else:
             state["stats"]["bs_skip"] += 1
             bs_res_status = "SKIP"
@@ -187,7 +195,31 @@ def process_strategy(state, records):
         })
         if len(state["history"]) > 3: state["history"].pop(0)
 
-        state["bs_pred"] = latest_bs
+        # =======================================================
+        # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> 3-CIRCLE MODE) 🚀
+        # =======================================================
+        if state["mode"] == "normal":
+            if state["bs_fails_in_row"] == 4:
+                # 4th Loss triggered: Start the 3-Circle strategy based on L4 result
+                state["mode"] = "3-circle"
+                state["circle_current_target"] = latest_bs
+                state["circle_count"] = 1
+                state["bs_pred"] = state["circle_current_target"]
+            else:
+                # Normal trend-following for L1 to L3
+                state["bs_pred"] = latest_bs
+                
+        elif state["mode"] == "3-circle":
+            # If we're here, we lost in 3-circle mode (a win resets mode to 'normal' above)
+            state["circle_count"] += 1
+            if state["circle_count"] > 3:
+                # Switch target after 3 iterations (Big <-> Small)
+                state["circle_current_target"] = "Small" if state["circle_current_target"] == "Big" else "Big"
+                state["circle_count"] = 1
+            
+            state["bs_pred"] = state["circle_current_target"]
+        # =======================================================
+
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
         
         if state["active_until"] > 0 and time.time() < state["active_until"]:
@@ -225,6 +257,10 @@ def render_game_panel(state):
     bs_color = "dark_orange" if state["bs_pred"] == "Big" else "bright_blue"
     
     ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})" if state["bs_active"] else f"[yellow]WAIT[/] (Pending L{state['bs_level']})"
+    
+    if state["mode"] == "3-circle":
+        ui_text += " [bold magenta]🔄 3-Circle[/]"
+        
     timer_status = "[green]ACTIVE[/]" if (state["active_until"] > 0 and time.time() < state["active_until"]) else "[red]SLEEPING[/]"
     
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n📏 [bold]Pred:[/] {ui_text}\n🕒 [bold]Status:[/] {timer_status}\n\n"

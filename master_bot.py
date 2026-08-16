@@ -177,7 +177,6 @@ def process_strategy(state, records):
                 state["bs_level"] += 1
                 state["bs_fails_in_row"] += 1 
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
-                # (Removed the holding/skip logic when fails_in_row >= 4)
         else:
             state["stats"]["bs_skip"] += 1
             bs_res_status = "SKIP"
@@ -199,14 +198,14 @@ def process_strategy(state, records):
         # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> 3-CIRCLE MODE) 🚀
         # =======================================================
         if state["mode"] == "normal":
-            if state["bs_fails_in_row"] == 4:
-                # 4th Loss triggered: Start the 3-Circle strategy based on L4 result
+            if state["bs_fails_in_row"] == 3: # <--- इथे बदल केला आहे (4 च्या ऐवजी 3 केले)
+                # 3rd Loss triggered: Start the 3-Circle strategy based on L3 result
                 state["mode"] = "3-circle"
                 state["circle_current_target"] = latest_bs
                 state["circle_count"] = 1
                 state["bs_pred"] = state["circle_current_target"]
             else:
-                # Normal trend-following for L1 to L3
+                # Normal trend-following
                 state["bs_pred"] = latest_bs
                 
         elif state["mode"] == "3-circle":

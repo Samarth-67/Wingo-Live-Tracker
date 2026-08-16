@@ -12,7 +12,7 @@ SECRET_PASSWORD = "12345"
 TARGET_CHANNEL_ID = "-1004370895879"  # <--- तुझा चॅनेल आयडी
 # ------------------------------------------------------------
 
-# डॅशबोर्डसाठी ग्लोबल स्टेट (Global State)
+# Global State for Dashboard and Logic
 bot_state = {
     "last_issue": "Waiting for data...",
     "latest_number": "-",
@@ -20,6 +20,13 @@ bot_state = {
     "bs_pred": "-", "bs_step": 0, "bs_level_num": 1, "bs_level": "L1",
     "last_result": "Bot is initializing...",
     "jackpot": False,
+    "violet_gap": 0,                
+    "violet_alert_active": False,   
+    "violet_normal_active": False,  # Gap 6 साठी नॉर्मल अलर्ट (लेव्हल नसलेला)
+    "violet_mega_active": False,    # Gap 8 साठी मेगा अलर्ट (लेव्हल असलेला)
+    "violet_level": 1,              
+    "violet_alert_type": "None",      
+    "violet_mega_win": False,       
     "active_until": 0,
     "notified_sleep": True
 }
@@ -71,7 +78,7 @@ def telegram_listener():
                             bot_state["active_until"] = time.time() + 3600
                             bot_state["notified_sleep"] = False
                             print("✅ Bot activated via Telegram!")
-                            send_telegram_message(chat_id, "✅ *Bot Activated for 1 Hour with 3-Circle Strategy!*")
+                            send_telegram_message(chat_id, "✅ *Bot Activated for 1 Hour with Gap 6 & Mega Alert Strategy!*")
                         else:
                             send_telegram_message(chat_id, "❌ Access Denied!")
         except Exception as e:
@@ -93,61 +100,173 @@ def background_bot_loop():
                 if num_str.isdigit():
                     number = int(num_str)
                     actual_bs = "Big" if number >= 5 else "Small"
+                    is_violet = (number == 0 or number == 5)
 
                     if last_processed is None:
                         last_processed = issue
-                        # सिस्टीम चालू होताना पहिली प्रेडिक्शन सेट करणे
                         bot_state["bs_pred"] = actual_bs
                         bot_state["bs_step"] = 1
                         bot_state["status"] = "PREDICTING"
                         bot_state["jackpot"] = False
+                        
+                        # Calculate initial Violet Gap
+                        gap = 0
+                        for r in records:
+                            n_str = str(r.get("number", "-"))
+                            if n_str.isdigit() and (int(n_str) == 0 or int(n_str) == 5): break
+                            gap += 1
+                        bot_state["violet_gap"] = gap
+                        
+                        if gap >= 8:
+                            bot_state["violet_mega_active"] = True
+                            bot_state["violet_normal_active"] = False
+                            bot_state["violet_alert_active"] = True
+                            bot_state["violet_alert_type"] = "Mega Alert"
+                            bot_state["violet_level"] = 1
+                        elif gap >= 6:
+                            bot_state["violet_normal_active"] = True
+                            bot_state["violet_mega_active"] = False
+                            bot_state["violet_alert_active"] = True
+                            bot_state["violet_alert_type"] = "Normal Alert (Gap 6)"
+                        
+                        print(f"✅ Initialized at Ticket: {issue} | Current Violet Gap: {gap}")
 
                     elif last_processed != issue:
+                        print("\n" + "=" * 55)
+                        print(f"✅ Result Declared for Ticket: {issue}")
+                        print(f"🎲 Number Came: {number}")
+
                         bs_res_status = None
+                        violet_res_status = None
 
                         if bot_state["status"] == "PREDICTING":
-                            # रिझल्ट तपासणे
+                            # --- 1. Big/Small Logic ---
                             bs_win = (bot_state["bs_pred"] == actual_bs)
-                            bot_state["jackpot"] = bs_win  # जर जिंकला तर जॅकपॉट True होईल
-
+                            bot_state["jackpot"] = bs_win 
                             bs_res_status = f"{bot_state['bs_pred']} {'✅ WIN' if bs_win else '❌ FAIL'}"
-                            bot_state["last_result"] = f"Issue {last_processed} -> B/S: {bs_res_status}"
 
-                            # Level अपडेट करणे (जिंकले तर 1, हरले तर +1)
                             if bs_win: bot_state["bs_level_num"] = 1
                             else: bot_state["bs_level_num"] += 1
                             
-                            # 3-Circle स्ट्रॅटेजी (Step Rotation)
                             if bot_state["bs_step"] < 3:
                                 bot_state["bs_step"] += 1
                             else:
                                 bot_state["bs_pred"] = "Small" if bot_state["bs_pred"] == "Big" else "Big"
                                 bot_state["bs_step"] = 1
 
+                            # --- 2. Violet Strategy Logic (Gap 6 Normal & Gap 8+ Mega) ---
+                            bot_state["violet_mega_win"] = False
+                            
+                            if is_violet:
+                                if bot_state["violet_alert_active"]:
+                                    if bot_state["violet_mega_active"]:
+                                        print(f"   👉 🟣🔥 VIOLET MEGA WIN! (Mega Alert Success at L{bot_state['violet_level']}!) 🔥🟣")
+                                        violet_res_status = f"🟣 ✅ MEGA WIN (L{bot_state['violet_level']})"
+                                    else:
+                                        print(f"   👉 🟣🔥 VIOLET WIN! (Normal Alert Gap 6 Success!) 🔥🟣")
+                                        violet_res_status = f"🟣 ✅ NORMAL WIN"
+                                    bot_state["violet_mega_win"] = True
+                                else:
+                                    print("   👉 🟣 Normal Violet Win!")
+                                    violet_res_status = "🟣 ✅ WIN"
+                                    
+                                # Reset everything after win
+                                bot_state["violet_gap"] = 0
+                                bot_state["violet_level"] = 1
+                                bot_state["violet_alert_active"] = False
+                                bot_state["violet_normal_active"] = False
+                                bot_state["violet_mega_active"] = False
+                                bot_state["violet_alert_type"] = "None"
+                                print("   🔄 Violet Tracker reset to 0")
+                            else:
+                                bot_state["violet_gap"] += 1
+                                
+                                if bot_state["violet_alert_active"]:
+                                    if bot_state["violet_mega_active"]:
+                                        print(f"   👉 ❌ Mega Alert Level {bot_state['violet_level']} Fail")
+                                        violet_res_status = f"🟣 ❌ FAIL (Mega L{bot_state['violet_level']})"
+                                        bot_state["violet_level"] += 1 # Mega alert gets levels
+                                    else:
+                                        print(f"   👉 ❌ Normal Alert (Gap {bot_state['violet_gap']}) Fail")
+                                        violet_res_status = f"🟣 ❌ FAIL (Normal Gap {bot_state['violet_gap']})"
+                                        # Normal alert has no levels, so level doesn't change
+                                else:
+                                    print(f"   👉 No Violet. Gap is now: {bot_state['violet_gap']}")
+
+                                # Evaluate triggers based on current gap
+                                if bot_state["violet_gap"] >= 8:
+                                    bot_state["violet_mega_active"] = True
+                                    bot_state["violet_normal_active"] = False
+                                    bot_state["violet_alert_active"] = True
+                                    bot_state["violet_alert_type"] = "Mega Alert"
+                                    if bot_state["violet_level"] < 1:
+                                        bot_state["violet_level"] = 1
+                                    print("   🚨 Gap 8+ Reached! Activating Mega Alert L1")
+                                elif bot_state["violet_gap"] >= 6:
+                                    bot_state["violet_normal_active"] = True
+                                    bot_state["violet_mega_active"] = False
+                                    bot_state["violet_alert_active"] = True
+                                    bot_state["violet_alert_type"] = "Normal Alert"
+                                    print("   🚨 Gap 6 Reached! Activating Normal Alert (No Level)")
+                                else:
+                                    bot_state["violet_alert_active"] = False
+                                    bot_state["violet_normal_active"] = False
+                                    bot_state["violet_mega_active"] = False
+                                    bot_state["violet_alert_type"] = "None"
+
+                            bot_state["last_result"] = f"B/S: {bs_res_status}"
+                            if violet_res_status:
+                                bot_state["last_result"] += f" | Violet: {violet_res_status}"
+
                         next_issue = str(int(issue) + 1) if issue.isdigit() else "Next"
                         
-                        # डॅशबोर्ड अपडेट करणे
                         bot_state["last_issue"] = next_issue
                         bot_state["latest_number"] = number
                         bot_state["bs_level"] = f"L{bot_state['bs_level_num']}"
                         
                         last_processed = issue
 
-                        # जर टायमर चालू असेल तर चॅनेलवर सिग्नल पाठवा
+                        # ---------------- 3. PREDICTION FOR NEXT TICKET ----------------
+                        print("-" * 55)
+                        print(f"🎟️ PREDICTION FOR NEXT TICKET: {next_issue}")
+                        if bot_state["violet_alert_active"]:
+                            if bot_state["violet_mega_active"]:
+                                print(f"🔮 Violet Prediction: 🟣 Mega Alert - Level {bot_state['violet_level']}")
+                            else:
+                                print(f"🔮 Violet Prediction: 🟣 Normal Alert (Gap {bot_state['violet_gap']}) - No Level")
+                        else:
+                            print(f"🔮 Violet Prediction: Waiting (Gap {bot_state['violet_gap']})")
+                        print("=" * 55)
+
+                        # Send Telegram Signal if active
                         if bot_state["active_until"] > 0 and time.time() < bot_state["active_until"]:
                             text = f"🚀 *VSR WINGO Signals 1 Minute* 🚀\n\n"
                             if bs_res_status:
-                                text += f"🔄 *Last Trade Result:*\n"
+                                text += f"🔄 *Result for {issue}:*\n"
                                 text += f"📏 B/S: {bs_res_status}\n"
-                                if bot_state["jackpot"]:
+                                if violet_res_status:
+                                    text += f"🟣 Violet: {violet_res_status}\n"
+                                    
+                                if bot_state["violet_mega_win"]:
+                                    text += f"\n🟣🔥 *VIOLET WIN!* 🔥🟣\n"
+                                elif bot_state["jackpot"]:
                                     text += f"\n🔥🎉 *JACKPOT! WIN!* 🎉🔥\n"
+                                    
                                 text += f"\n➖➖➖➖➖➖➖➖\n\n"
                             
-                            text += (
-                                f"🎟️ *New Issue:* {next_issue}\n\n"
-                                f"📏 *Prediction:* {bot_state['bs_pred']}\n"
-                                f"🎯 *Level:* L{bot_state['bs_level_num']}"
-                            )
+                            text += f"🎟️ *Prediction For Ticket:* {next_issue}\n\n"
+                            text += f"📏 *B/S Pred:* {bot_state['bs_pred']} (L{bot_state['bs_level_num']})\n\n"
+                            
+                            if bot_state["violet_alert_active"]:
+                                if bot_state["violet_mega_active"]:
+                                    text += f"⚠️ 🟣 *VIOLET MEGA ALERT*\n"
+                                    text += f"🎯 *Violet Level:* L{bot_state['violet_level']}\n"
+                                else:
+                                    text += f"⚠️ 🟣 *VIOLET NORMAL ALERT (Gap {bot_state['violet_gap']})*\n"
+                                    text += f"🎯 *Level:* None\n"
+                            else:
+                                text += f"⏸️ *Violet Status:* Waiting (Gap: {bot_state['violet_gap']})\n"
+
                             send_telegram_message(TARGET_CHANNEL_ID, text)
                         elif bot_state["active_until"] > 0 and time.time() >= bot_state["active_until"]:
                             if not bot_state["notified_sleep"]:
@@ -156,10 +275,10 @@ def background_bot_loop():
                                 bot_state["active_until"] = 0
                                 
         except Exception as e:
-            print("Loop error:", e)
+            pass
         time.sleep(5)
 
-# डॅशबोर्ड डिझाईन
+# Dashboard Design
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -173,8 +292,11 @@ HTML_TEMPLATE = """
         .subtitle { color: #94a3b8; font-size: 12px; margin-bottom: 20px; }
         .metric { background: #334155; margin: 12px 0; padding: 15px; border-radius: 10px; font-size: 16px; text-align: left; display: flex; justify-content: space-between; align-items: center; }
         .highlight { color: #4ade80; font-weight: bold; font-size: 18px; }
+        .violet-active { color: #c084fc; font-weight: bold; font-size: 15px; animation: pulse 1.5s infinite; }
+        .violet-waiting { color: #94a3b8; font-size: 15px; }
         .result-box { background: #0f172a; margin-top: 15px; padding: 12px; border-radius: 8px; font-size: 13px; color: #cbd5e1; text-align: left; border-left: 4px solid #38bdf8; }
         .jackpot { background: #eab308; color: #000; font-weight: bold; padding: 12px; border-radius: 8px; margin-top: 15px; font-size: 15px; display: none; animation: pulse 1.5s infinite; }
+        .mega-win { background: #9333ea; color: #fff; font-weight: bold; padding: 12px; border-radius: 8px; margin-top: 15px; font-size: 15px; display: none; animation: pulse 1s infinite; }
         .status-badge { background: #ef4444; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
         .status-active { background: #22c55e; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
@@ -187,13 +309,15 @@ HTML_TEMPLATE = """
             Signals Status: <span id="timer_status" class="status-badge">INACTIVE</span>
         </div>
         
-        <div class="metric"><span>🎟️ Next Issue:</span> <span class="highlight" id="last_issue">Loading...</span></div>
-        <div class="metric"><span>📏 Prediction B/S:</span> <span class="highlight" id="bs_info">-</span></div>
+        <div class="metric"><span>🎟️ Next Ticket:</span> <span class="highlight" id="last_issue">Loading...</span></div>
+        <div class="metric"><span>📏 B/S Pred:</span> <span class="highlight" id="bs_info">-</span></div>
+        <div class="metric"><span>🟣 Violet Pred:</span> <span id="violet_info">Calculating...</span></div>
         
         <div class="result-box" id="last_result">
             <b>📊 Last Trade Status:</b><br>Initializing...
         </div>
 
+        <div class="mega-win" id="mega_win_box">🟣🔥 VIOLET WIN! 🔥🟣</div>
         <div class="jackpot" id="jackpot_box">🔥🎉 JACKPOT! WIN! 🎉🔥</div>
     </div>
 
@@ -204,10 +328,27 @@ HTML_TEMPLATE = """
                 .then(data => {
                     document.getElementById('last_issue').innerText = data.last_issue;
                     document.getElementById('bs_info').innerText = data.bs_pred + " (" + data.bs_level + ")";
+                    
+                    const vInfo = document.getElementById('violet_info');
+                    if (data.violet_alert_active) {
+                        if (data.violet_mega_active) {
+                            vInfo.innerText = "⚠️ MEGA ALERT (L" + data.violet_level + ")";
+                        } else {
+                            vInfo.innerText = "⚠️ NORMAL ALERT (Gap " + data.violet_gap + ")";
+                        }
+                        vInfo.className = "violet-active";
+                    } else {
+                        vInfo.innerText = "⏸️ WAITING (Gap: " + data.violet_gap + ")";
+                        vInfo.className = "violet-waiting";
+                    }
+                    
                     document.getElementById('last_result').innerHTML = "<b>📊 Last Trade Status:</b><br>" + data.last_result;
                     
+                    const mw = document.getElementById('mega_win_box');
+                    if (data.violet_mega_win) { mw.style.display = 'block'; } else { mw.style.display = 'none'; }
+                    
                     const jp = document.getElementById('jackpot_box');
-                    if (data.jackpot) { jp.style.display = 'block'; } else { jp.style.display = 'none'; }
+                    if (data.jackpot && !data.violet_mega_win) { jp.style.display = 'block'; } else { jp.style.display = 'none'; }
 
                     const statusBadge = document.getElementById('timer_status');
                     if (data.active_until > (Date.now() / 1000)) {

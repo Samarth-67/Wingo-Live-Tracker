@@ -19,6 +19,7 @@ bot_state = {
     "status": "WAITING",
     "bs_pred": "-", "bs_step": 0, "bs_level_num": 1, "bs_level": "L1",
     "last_result": "Bot is initializing...",
+    "jackpot": False,
     "active_until": 0,
     "notified_sleep": True
 }
@@ -99,6 +100,7 @@ def background_bot_loop():
                         bot_state["bs_pred"] = actual_bs
                         bot_state["bs_step"] = 1
                         bot_state["status"] = "PREDICTING"
+                        bot_state["jackpot"] = False
 
                     elif last_processed != issue:
                         bs_res_status = None
@@ -106,6 +108,7 @@ def background_bot_loop():
                         if bot_state["status"] == "PREDICTING":
                             # रिझल्ट तपासणे
                             bs_win = (bot_state["bs_pred"] == actual_bs)
+                            bot_state["jackpot"] = bs_win  # जर जिंकला तर जॅकपॉट True होईल
 
                             bs_res_status = f"{bot_state['bs_pred']} {'✅ WIN' if bs_win else '❌ FAIL'}"
                             bot_state["last_result"] = f"Issue {last_processed} -> B/S: {bs_res_status}"
@@ -135,8 +138,10 @@ def background_bot_loop():
                             text = f"🚀 *VSR WINGO Signals 1 Minute* 🚀\n\n"
                             if bs_res_status:
                                 text += f"🔄 *Last Trade Result:*\n"
-                                text += f"📏 B/S: {bs_res_status}\n\n"
-                                text += f"➖➖➖➖➖➖➖➖\n\n"
+                                text += f"📏 B/S: {bs_res_status}\n"
+                                if bot_state["jackpot"]:
+                                    text += f"\n🔥🎉 *JACKPOT! WIN!* 🎉🔥\n"
+                                text += f"\n➖➖➖➖➖➖➖➖\n\n"
                             
                             text += (
                                 f"🎟️ *New Issue:* {next_issue}\n\n"
@@ -169,8 +174,10 @@ HTML_TEMPLATE = """
         .metric { background: #334155; margin: 12px 0; padding: 15px; border-radius: 10px; font-size: 16px; text-align: left; display: flex; justify-content: space-between; align-items: center; }
         .highlight { color: #4ade80; font-weight: bold; font-size: 18px; }
         .result-box { background: #0f172a; margin-top: 15px; padding: 12px; border-radius: 8px; font-size: 13px; color: #cbd5e1; text-align: left; border-left: 4px solid #38bdf8; }
+        .jackpot { background: #eab308; color: #000; font-weight: bold; padding: 12px; border-radius: 8px; margin-top: 15px; font-size: 15px; display: none; animation: pulse 1.5s infinite; }
         .status-badge { background: #ef4444; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
         .status-active { background: #22c55e; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
@@ -186,6 +193,8 @@ HTML_TEMPLATE = """
         <div class="result-box" id="last_result">
             <b>📊 Last Trade Status:</b><br>Initializing...
         </div>
+
+        <div class="jackpot" id="jackpot_box">🔥🎉 JACKPOT! WIN! 🎉🔥</div>
     </div>
 
     <script>
@@ -197,6 +206,9 @@ HTML_TEMPLATE = """
                     document.getElementById('bs_info').innerText = data.bs_pred + " (" + data.bs_level + ")";
                     document.getElementById('last_result').innerHTML = "<b>📊 Last Trade Status:</b><br>" + data.last_result;
                     
+                    const jp = document.getElementById('jackpot_box');
+                    if (data.jackpot) { jp.style.display = 'block'; } else { jp.style.display = 'none'; }
+
                     const statusBadge = document.getElementById('timer_status');
                     if (data.active_until > (Date.now() / 1000)) {
                         statusBadge.innerText = "ACTIVE (Running)";

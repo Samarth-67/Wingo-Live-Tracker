@@ -20,11 +20,18 @@ bot_state = {
     "bs_pred": "-", "bs_step": 0, "bs_level_num": 1, "bs_level": "L1",
     "last_result": "Bot is initializing...",
     "jackpot": False,
-    "violet_gap": 0,                
+    "violet_gap": 0,
+    
+    # AI Violet Strategy States
+    "full_history": [],
+    "hot_gap": None,
+    "hot_number": None,
+    
     "violet_alert_active": False,   
     "violet_alert_type": "None",      
     "violet_level": 0,              
     "violet_mega_win": False,       
+    
     "active_until": 0,
     "notified_sleep": True
 }
@@ -33,7 +40,7 @@ def get_wingo_data():
     ts = int(time.time() * 1000)
     target_url = f"https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json?ts={ts}"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json",
         "Referer": "https://ar-lottery01.com/"
     }
@@ -76,37 +83,50 @@ def telegram_listener():
                             bot_state["active_until"] = time.time() + 3600
                             bot_state["notified_sleep"] = False
                             print("✅ Bot activated via Telegram!")
-                            send_telegram_message(chat_id, "✅ *Bot Activated! 3-Stage Sniper Violet Strategy Running!*")
+                            send_telegram_message(chat_id, "✅ *Bot Activated! AI Self-Analysis Violet Strategy (with Stop-Loss) Running!*")
                         else:
                             send_telegram_message(chat_id, "❌ Access Denied!")
         except Exception as e:
             pass
         time.sleep(3)
 
-def get_violet_prediction_state(gap):
-    # --- Batch 1: Gap 4, 5, 6 (L1, L2, L3) ---
-    if gap == 4:
-        return True, "Gap 4-6 Alert", 1
-    elif gap == 5:
-        return True, "Gap 4-6 Alert", 2
-    elif gap == 6:
-        return True, "Gap 4-6 Alert", 3
+def analyze_violet_history(full_history):
+    """
+    Analyzes the last 100 rounds to find the 'Hot Gap' and 'Hot Number' for Violets.
+    full_history is sorted newest first.
+    """
+    if not full_history or len(full_history) < 20:
+        return None, None
         
-    # --- Batch 2: Gap 9, 10, 11 (L1, L2, L3) ---
-    elif gap == 9:
-        return True, "Gap 9-11 Alert", 1
-    elif gap == 10:
-        return True, "Gap 9-11 Alert", 2
-    elif gap == 11:
-        return True, "Gap 9-11 Alert", 3
+    gaps = []
+    preceding_numbers = {}
+    
+    last_violet_idx = -1
+    
+    for i in range(len(full_history)):
+        num = full_history[i]['number']
+        is_violet = (num == 0 or num == 5)
         
-    # --- MEGA Alert: Gap 14 to 18 (L1 to L5) ---
-    elif gap >= 14 and gap <= 18:
-        return True, "MEGA Alert", (gap - 13) # L1 to L5
-        
-    # --- Waiting for next trigger ---
-    else:
-        return False, "None", 0
+        if is_violet:
+            # Chronologically, the number before this Violet is at i+1
+            if i + 1 < len(full_history):
+                prev_num = full_history[i+1]['number']
+                preceding_numbers[prev_num] = preceding_numbers.get(prev_num, 0) + 1
+            
+            # Calculate gap between this Violet and the newer Violet we found earlier
+            if last_violet_idx != -1:
+                gap = i - last_violet_idx - 1
+                gaps.append(gap)
+            
+            last_violet_idx = i
+            
+    # Find Hot Gap (Mode)
+    hot_gap = max(set(gaps), key=gaps.count) if gaps else None
+    
+    # Find Hot Number (Mode)
+    hot_number = max(preceding_numbers, key=preceding_numbers.get) if preceding_numbers else None
+    
+    return hot_gap, hot_number
 
 def background_bot_loop():
     global bot_state
@@ -116,6 +136,24 @@ def background_bot_loop():
         try:
             records = get_wingo_data()
             if records:
+                # ---------------- Update Full History for AI ----------------
+                for r in records:
+                    iss = str(r.get("issueNumber") or r.get("issue") or "")
+                    num_str = str(r.get("number") or r.get("drawNumber") or "")
+                    if iss and num_str.isdigit():
+                        if not any(x['issue'] == iss for x in bot_state["full_history"]):
+                            bot_state["full_history"].append({'issue': iss, 'number': int(num_str)})
+                
+                # Sort newest first and keep top 100
+                bot_state["full_history"].sort(key=lambda x: x['issue'], reverse=True)
+                bot_state["full_history"] = bot_state["full_history"][:100]
+                
+                # Run AI Analysis
+                h_gap, h_num = analyze_violet_history(bot_state["full_history"])
+                bot_state["hot_gap"] = h_gap
+                bot_state["hot_number"] = h_num
+                # ------------------------------------------------------------
+
                 latest = records[0]
                 issue = str(latest.get("issueNumber") or latest.get("issue") or latest.get("period") or "-")
                 num_str = str(latest.get("number") or latest.get("drawNumber") or "-")
@@ -132,7 +170,7 @@ def background_bot_loop():
                         bot_state["status"] = "PREDICTING"
                         bot_state["jackpot"] = False
                         
-                        # Calculate initial Violet Gap
+                        # Calculate initial Violet Gap manually from current records
                         gap = 0
                         for r in records:
                             n_str = str(r.get("number", "-"))
@@ -140,13 +178,7 @@ def background_bot_loop():
                             gap += 1
                         bot_state["violet_gap"] = gap
                         
-                        # Set initial state
-                        is_active, alert_type, level = get_violet_prediction_state(gap)
-                        bot_state["violet_alert_active"] = is_active
-                        bot_state["violet_alert_type"] = alert_type
-                        bot_state["violet_level"] = level
-                        
-                        print(f"✅ Initialized at Ticket: {issue} | Current Violet Gap: {gap}")
+                        print(f"✅ Initialized at Ticket: {issue} | AI Training Ready")
 
                     elif last_processed != issue:
                         print("\n" + "=" * 55)
@@ -157,7 +189,7 @@ def background_bot_loop():
                         violet_res_status = None
 
                         if bot_state["status"] == "PREDICTING":
-                            # --- 1. Big/Small Logic ---
+                            # --- 1. Big/Small Logic (3-Circle) ---
                             bs_win = (bot_state["bs_pred"] == actual_bs)
                             bot_state["jackpot"] = bs_win 
                             bs_res_status = f"{bot_state['bs_pred']} {'✅ WIN' if bs_win else '❌ FAIL'}"
@@ -170,45 +202,54 @@ def background_bot_loop():
                                 bot_state["bs_pred"] = "Small" if bot_state["bs_pred"] == "Big" else "Big"
                                 bot_state["bs_step"] = 1
 
-                            # --- 2. Sniper Violet Strategy Logic ---
+                            # --- 2. AI Violet Evaluation ---
                             bot_state["violet_mega_win"] = False
                             
                             if is_violet:
                                 if bot_state["violet_alert_active"]:
-                                    if "MEGA" in bot_state["violet_alert_type"]:
-                                        print(f"   👉 🟣🔥 VIOLET MEGA WIN! (Won at L{bot_state['violet_level']}) 🔥🟣")
-                                        violet_res_status = f"🟣 ✅ MEGA WIN (L{bot_state['violet_level']})"
-                                    else:
-                                        print(f"   👉 🟣🔥 VIOLET WIN! ({bot_state['violet_alert_type']} Success at L{bot_state['violet_level']}) 🔥🟣")
-                                        violet_res_status = f"🟣 ✅ WIN ({bot_state['violet_alert_type']} L{bot_state['violet_level']})"
+                                    print(f"   👉 🟣🔥 VIOLET AI MEGA WIN! ({bot_state['violet_alert_type']} Success at L{bot_state['violet_level']}) 🔥🟣")
+                                    violet_res_status = f"🟣 ✅ AI WIN (L{bot_state['violet_level']})"
                                     bot_state["violet_mega_win"] = True
                                 else:
-                                    print("   👉 🟣 Normal Violet Win! (No active alert)")
+                                    print("   👉 🟣 Normal Violet Win! (No active AI alert)")
                                     violet_res_status = "🟣 ✅ WIN"
                                     
-                                bot_state["violet_gap"] = 0 # Reset gap after win
+                                bot_state["violet_gap"] = 0 
+                                bot_state["violet_alert_active"] = False
+                                bot_state["violet_alert_type"] = "None"
+                                bot_state["violet_level"] = 0
                             else:
                                 bot_state["violet_gap"] += 1
                                 
                                 if bot_state["violet_alert_active"]:
-                                    print(f"   👉 ❌ {bot_state['violet_alert_type']} Level {bot_state['violet_level']} Fail")
+                                    print(f"   👉 ❌ AI {bot_state['violet_alert_type']} Level {bot_state['violet_level']} Fail")
                                     violet_res_status = f"🟣 ❌ FAIL ({bot_state['violet_alert_type']} L{bot_state['violet_level']})"
                                     
-                                    # Stop loss trigger print for L3 in normal alerts and L5 in MEGA
-                                    if "Gap" in bot_state["violet_alert_type"] and bot_state["violet_level"] == 3:
-                                        print("   ⚠️ 🛑 STOP LOSS HIT! Waiting for next Gap Phase.")
-                                        violet_res_status += " [🛑 L3 STOP]"
-                                    elif "MEGA" in bot_state["violet_alert_type"] and bot_state["violet_level"] == 5:
-                                        print("   ⚠️ 🛑 STOP LOSS HIT FOR MEGA ALERT! Stopping Violet prediction to save funds.")
-                                        violet_res_status += " [🛑 L5 STOP LOSS]"
+                                    # Strict Stop Loss for AI Strategy (Max Level 2)
+                                    if bot_state["violet_level"] >= 2:
+                                        print("   ⚠️ 🛑 AI STOP LOSS HIT! Waiting for next exact AI pattern.")
+                                        violet_res_status += " [🛑 STOP]"
+                                        bot_state["violet_alert_active"] = False
+                                        bot_state["violet_alert_type"] = "None"
+                                        bot_state["violet_level"] = 0
+                                    else:
+                                        bot_state["violet_level"] += 1
                                 else:
-                                    print(f"   👉 No Violet. Gap is now: {bot_state['violet_gap']}")
+                                    print(f"   👉 No Violet. Current Gap: {bot_state['violet_gap']}")
 
-                            # Determine NEXT round's prediction based on the NEW gap
-                            is_active, alert_type, level = get_violet_prediction_state(bot_state["violet_gap"])
-                            bot_state["violet_alert_active"] = is_active
-                            bot_state["violet_alert_type"] = alert_type
-                            bot_state["violet_level"] = level
+                            # --- 3. AI Trigger Checker for Next Round ---
+                            # Only trigger if no alert is currently active and we have enough data
+                            if not bot_state["violet_alert_active"] and len(bot_state["full_history"]) >= 20:
+                                if bot_state["hot_gap"] is not None and bot_state["violet_gap"] == bot_state["hot_gap"]:
+                                    bot_state["violet_alert_active"] = True
+                                    bot_state["violet_alert_type"] = f"AI Hot Gap ({bot_state['hot_gap']})"
+                                    bot_state["violet_level"] = 1
+                                    print(f"   🚨 AI TRIGGER: Current Gap matches Hot Gap ({bot_state['hot_gap']})! Alert L1 Started.")
+                                elif bot_state["hot_number"] is not None and number == bot_state["hot_number"]:
+                                    bot_state["violet_alert_active"] = True
+                                    bot_state["violet_alert_type"] = f"AI Hot Num ({bot_state['hot_number']})"
+                                    bot_state["violet_level"] = 1
+                                    print(f"   🚨 AI TRIGGER: Result '{number}' matches Hot Number! Alert L1 Started.")
 
                             bot_state["last_result"] = f"B/S: {bs_res_status}"
                             if violet_res_status:
@@ -222,18 +263,23 @@ def background_bot_loop():
                         
                         last_processed = issue
 
-                        # ---------------- 3. PREDICTION FOR NEXT TICKET ----------------
+                        # ---------------- 4. PREDICTION CONSOLE OUTPUT ----------------
                         print("-" * 55)
                         print(f"🎟️ PREDICTION FOR NEXT TICKET: {next_issue}")
+                        print(f"📊 AI Status: Hot Gap = {bot_state['hot_gap']} | Hot Num = {bot_state['hot_number']}")
+                        
                         if bot_state["violet_alert_active"]:
                             print(f"🔮 Violet Prediction: 🟣 {bot_state['violet_alert_type']} - Level {bot_state['violet_level']}")
                         else:
-                            print(f"🔮 Violet Prediction: Waiting (Gap {bot_state['violet_gap']})")
+                            print(f"🔮 Violet Prediction: Waiting for AI match (Current Gap {bot_state['violet_gap']})")
                         print("=" * 55)
 
                         # Send Telegram Signal if active
                         if bot_state["active_until"] > 0 and time.time() < bot_state["active_until"]:
                             text = f"🚀 *VSR WINGO Signals 1 Minute* 🚀\n\n"
+                            
+                            text += f"🧠 *AI DATA:* Hot Gap [{bot_state['hot_gap']}] | Hot Num [{bot_state['hot_number']}]\n\n"
+                            
                             if bs_res_status:
                                 text += f"🔄 *Result for {issue}:*\n"
                                 text += f"📏 B/S: {bs_res_status}\n"
@@ -241,7 +287,7 @@ def background_bot_loop():
                                     text += f"🟣 Violet: {violet_res_status}\n"
                                     
                                 if bot_state["violet_mega_win"]:
-                                    text += f"\n🟣🔥 *VIOLET WIN!* 🔥🟣\n"
+                                    text += f"\n🟣🔥 *VIOLET AI WIN!* 🔥🟣\n"
                                 elif bot_state["jackpot"]:
                                     text += f"\n🔥🎉 *JACKPOT! WIN!* 🎉🔥\n"
                                     
@@ -254,7 +300,7 @@ def background_bot_loop():
                                 text += f"⚠️ 🟣 *{bot_state['violet_alert_type'].upper()}*\n"
                                 text += f"🎯 *Violet Level:* L{bot_state['violet_level']}\n"
                             else:
-                                text += f"⏸️ *Violet Status:* Waiting (Gap: {bot_state['violet_gap']})\n"
+                                text += f"⏸️ *Violet Status:* Analyzing Pattern (Gap: {bot_state['violet_gap']})\n"
 
                             send_telegram_message(TARGET_CHANNEL_ID, text)
                         elif bot_state["active_until"] > 0 and time.time() >= bot_state["active_until"]:
@@ -272,13 +318,14 @@ HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>VSR Wingo Live Dashboard</title>
+    <title>VSR Wingo Live AI Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; padding: 20px; }
         .card { background: #1e293b; border-radius: 16px; padding: 25px; max-width: 450px; margin: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
         h1 { color: #38bdf8; font-size: 20px; margin-bottom: 5px; }
-        .subtitle { color: #94a3b8; font-size: 12px; margin-bottom: 20px; }
+        .subtitle { color: #94a3b8; font-size: 12px; margin-bottom: 10px; }
+        .ai-stats { background: #020617; padding: 10px; border-radius: 8px; font-size: 13px; color: #fbbf24; margin-bottom: 15px; border: 1px solid #fbbf24; }
         .metric { background: #334155; margin: 12px 0; padding: 15px; border-radius: 10px; font-size: 16px; text-align: left; display: flex; justify-content: space-between; align-items: center; }
         .highlight { color: #4ade80; font-weight: bold; font-size: 18px; }
         .violet-active { color: #c084fc; font-weight: bold; font-size: 15px; animation: pulse 1.5s infinite; }
@@ -293,20 +340,25 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="card">
-        <h1>🚀 VSR WINGO Dashboard</h1>
+        <h1>🚀 VSR WINGO AI Dashboard</h1>
         <div class="subtitle">
             Signals Status: <span id="timer_status" class="status-badge">INACTIVE</span>
         </div>
         
+        <div class="ai-stats">
+            🧠 <b>Live AI Analytics:</b> <br>
+            Hot Gap: <span id="hot_gap">-</span> | Hot Number: <span id="hot_num">-</span>
+        </div>
+        
         <div class="metric"><span>🎟️ Next Ticket:</span> <span class="highlight" id="last_issue">Loading...</span></div>
         <div class="metric"><span>📏 B/S Pred:</span> <span class="highlight" id="bs_info">-</span></div>
-        <div class="metric"><span>🟣 Violet Pred:</span> <span id="violet_info">Calculating...</span></div>
+        <div class="metric"><span>🟣 Violet Pred:</span> <span id="violet_info">Analyzing...</span></div>
         
         <div class="result-box" id="last_result">
             <b>📊 Last Trade Status:</b><br>Initializing...
         </div>
 
-        <div class="mega-win" id="mega_win_box">🟣🔥 VIOLET WIN! 🔥🟣</div>
+        <div class="mega-win" id="mega_win_box">🟣🔥 VIOLET AI WIN! 🔥🟣</div>
         <div class="jackpot" id="jackpot_box">🔥🎉 JACKPOT! WIN! 🎉🔥</div>
     </div>
 
@@ -317,6 +369,9 @@ HTML_TEMPLATE = """
                 .then(data => {
                     document.getElementById('last_issue').innerText = data.last_issue;
                     document.getElementById('bs_info').innerText = data.bs_pred + " (" + data.bs_level + ")";
+                    
+                    document.getElementById('hot_gap').innerText = data.hot_gap !== null ? data.hot_gap : "Calc...";
+                    document.getElementById('hot_num').innerText = data.hot_number !== null ? data.hot_number : "Calc...";
                     
                     const vInfo = document.getElementById('violet_info');
                     if (data.violet_alert_active) {

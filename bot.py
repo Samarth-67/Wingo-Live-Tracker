@@ -31,8 +31,8 @@ bot_state = {
     "full_history": [],
     "hot_gap": None,
     "hot_number": None,
-    "v_count_100": 0,
-    "max_lvl_100": 1,
+    "v_count_100": 0,     # मागच्या १०० मध्ये 'जिंकलेले' AI वॉयलेट
+    "max_lvl_100": 1,     # मागच्या १०० मध्ये B/S ची जास्तीत जास्त लेव्हल
     
     "violet_alert_active": False,   
     "violet_alert_type": "None",      
@@ -125,10 +125,10 @@ def analyze_violet_history(full_history):
     return hot_gap, hot_number
 
 def get_100_rounds_stats(full_history):
+    # आता हे फक्त आपल्या 'सिग्नल' वर जिंकलेले वॉयलेट मोजेल (Backtesting Simulation)
     if not full_history or len(full_history) < 2:
         return 0, 1
         
-    violet_count = sum(1 for x in full_history if x['number'] in [0, 5])
     history_asc = sorted(full_history, key=lambda x: x['issue'])
     
     bs_pred = None
@@ -138,38 +138,71 @@ def get_100_rounds_stats(full_history):
     circle_target = None
     circle_count = 0
     
-    for item in history_asc:
+    ai_violet_wins = 0
+    sim_violet_gap = 0
+    ai_alert_active = False
+    ai_level = 0
+    
+    for i, item in enumerate(history_asc):
         num = item['number']
         actual_bs = "Big" if num >= 5 else "Small"
+        is_violet = (num == 0 or num == 5)
         
+        # --- B/S Logic Simulation ---
         if bs_pred is None:
             bs_pred = actual_bs
-            continue
-            
-        if bs_pred == actual_bs:
-            bs_level = 1
-            mode = "normal"
         else:
-            bs_level += 1
-            if bs_level > max_level:
-                max_level = bs_level
-                
-        if mode == "normal":
-            if bs_level >= 4:
-                mode = "3-circle"
-                circle_target = actual_bs
-                circle_count = 1
-                bs_pred = circle_target
+            if bs_pred == actual_bs:
+                bs_level = 1
+                mode = "normal"
             else:
-                bs_pred = actual_bs
-        elif mode == "3-circle":
-            circle_count += 1
-            if circle_count > 3:
-                circle_target = "Small" if circle_target == "Big" else "Big"
-                circle_count = 1
-            bs_pred = circle_target
-            
-    return violet_count, max_level
+                bs_level += 1
+                if bs_level > max_level:
+                    max_level = bs_level
+                    
+            if mode == "normal":
+                if bs_level >= 4:
+                    mode = "3-circle"
+                    circle_target = actual_bs
+                    circle_count = 1
+                    bs_pred = circle_target
+                else:
+                    bs_pred = actual_bs
+            elif mode == "3-circle":
+                circle_count += 1
+                if circle_count > 3:
+                    circle_target = "Small" if circle_target == "Big" else "Big"
+                    circle_count = 1
+                bs_pred = circle_target
+
+        # --- Violet Logic Simulation (फक्त सिग्नलचे वॉयलेट मोजणे) ---
+        if is_violet:
+            if ai_alert_active:
+                ai_violet_wins += 1 # फक्त आपला सिग्नल असतानाच वॉयलेट आला तर 'विन' मोजेल
+            sim_violet_gap = 0
+            ai_alert_active = False
+            ai_level = 0
+        else:
+            sim_violet_gap += 1
+            if ai_alert_active:
+                if ai_level >= 2:
+                    ai_alert_active = False
+                    ai_level = 0
+                else:
+                    ai_level += 1
+                    
+        # Check trigger for next round (Need at least 20 rounds history)
+        past_slice = history_asc[:i+1][::-1] 
+        if not ai_alert_active and len(past_slice) >= 20:
+            h_gap, h_num = analyze_violet_history(past_slice)
+            if h_gap is not None and sim_violet_gap == h_gap:
+                ai_alert_active = True
+                ai_level = 1
+            elif h_num is not None and num == h_num:
+                ai_alert_active = True
+                ai_level = 1
+                
+    return ai_violet_wins, max_level
 
 def background_bot_loop():
     global bot_state
@@ -322,7 +355,7 @@ def background_bot_loop():
                         print("-" * 55)
                         print(f"🎟️ PREDICTION FOR NEXT TICKET: {next_issue}")
                         print(f"📊 AI Status: Hot Gap = {bot_state['hot_gap']} | Hot Num = {bot_state['hot_number']}")
-                        print(f"📈 100 Rounds Stats -> Violets: {bot_state['v_count_100']} | Max B/S Level: L{bot_state['max_lvl_100']}")
+                        print(f"📈 100 Rounds Stats -> AI Violets Won: {bot_state['v_count_100']} | Max B/S Level: L{bot_state['max_lvl_100']}")
                         
                         if bot_state["violet_alert_active"]:
                             print(f"🔮 Violet Prediction: 🟣 {bot_state['violet_alert_type']} - Level {bot_state['violet_level']}")
@@ -335,7 +368,7 @@ def background_bot_loop():
                             text = f"🚀 *VSR WINGO Signals 1 Minute* 🚀\n\n"
                             
                             text += f"🧠 *AI DATA:* Hot Gap [{bot_state['hot_gap']}] | Hot Num [{bot_state['hot_number']}]\n"
-                            text += f"📊 *LAST 100:* 🟣 Violets: {bot_state['v_count_100']} | 📈 Max B/S: L{bot_state['max_lvl_100']}\n\n"
+                            text += f"📊 *LAST 100:* 🟣 AI Violets Won: {bot_state['v_count_100']} | 📈 Max B/S: L{bot_state['max_lvl_100']}\n\n"
                             
                             if bs_res_status:
                                 text += f"🔄 *Result for {issue}:*\n"
@@ -408,7 +441,7 @@ HTML_TEMPLATE = """
         <div class="ai-stats">
             🧠 <b>Live AI Analytics:</b> <br>
             Hot Gap: <span id="hot_gap">-</span> | Hot Number: <span id="hot_num">-</span><br>
-            📊 <b>Last 100:</b> Violets: <span id="v_100">0</span> | Max B/S: L<span id="max_l_100">1</span>
+            📊 <b>Last 100:</b> AI Violet Wins: <span id="v_100">0</span> | Max B/S: L<span id="max_l_100">1</span>
         </div>
         
         <div class="metric"><span>🎟️ Next Ticket:</span> <span class="highlight" id="last_issue">Loading...</span></div>

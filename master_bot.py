@@ -198,8 +198,9 @@ def process_strategy(state, records):
         # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> 3-CIRCLE MODE) 🚀
         # =======================================================
         if state["mode"] == "normal":
-            if state["bs_fails_in_row"] == 3: # <--- इथे बदल केला आहे (4 च्या ऐवजी 3 केले)
-                # 3rd Loss triggered: Start the 3-Circle strategy based on L3 result
+            # इथे थेट 'bs_level' चेक करत आहोत. 
+            # तिसरी लेव्हल फेल झाल्यावर बोट चौथ्या (4) लेव्हलला जातो, त्यामुळे आपण >= 4 लावले आहे.
+            if state["bs_level"] >= 4: 
                 state["mode"] = "3-circle"
                 state["circle_current_target"] = latest_bs
                 state["circle_count"] = 1

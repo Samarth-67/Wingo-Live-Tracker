@@ -26,7 +26,7 @@ bot_state = {
     "circle_current_target": None, 
     "circle_count": 0,
     
-    # --- SUPER 8 Strategy States & 100 Rounds Data ---
+    # --- SUPER 8 DUAL Strategy States & 100 Rounds Data ---
     "full_history": [],
     "se_wins_100": 0,     # मागच्या १०० मध्ये 'सुपर 8' ने जिंकलेले
     "se_fails_100": 0,    # मागच्या १०० मध्ये 'सुपर 8' फेल गेलेले
@@ -34,7 +34,7 @@ bot_state = {
     
     "se_active": False,   
     "se_level": 0,              
-    "se_target": None,       
+    "se_target": "4 & 6",       
     "se_mega_win": False,
     
     "active_until": 0,
@@ -88,7 +88,7 @@ def telegram_listener():
                             bot_state["active_until"] = time.time() + 3600
                             bot_state["notified_sleep"] = False
                             print("✅ Bot activated via Telegram!")
-                            send_telegram_message(chat_id, "✅ *Bot Activated! Super 8 Strategy + 3-Circle Running!*")
+                            send_telegram_message(chat_id, "✅ *Bot Activated! Super 8 (Dual Betting) + 3-Circle Running!*")
                         else:
                             send_telegram_message(chat_id, "❌ Access Denied!")
         except Exception as e:
@@ -96,7 +96,6 @@ def telegram_listener():
         time.sleep(3)
 
 def get_100_rounds_stats(full_history):
-    # Calculate Super 8 Wins/Fails and Max B/S Level
     if not full_history or len(full_history) < 2:
         return 0, 0, 1
         
@@ -113,7 +112,6 @@ def get_100_rounds_stats(full_history):
     se_fails = 0
     se_active = False
     se_level = 0
-    se_target = None
     
     for item in history_asc:
         num = item['number']
@@ -146,19 +144,16 @@ def get_100_rounds_stats(full_history):
                     circle_count = 1
                 bs_pred = circle_target
 
-        # --- Super 8 Logic Simulation ---
+        # --- Super 8 Dual Logic Simulation ---
         if se_active:
-            if num == se_target:
+            if num in [4, 6]:
                 se_wins += 1
                 se_active = False
             elif num == 8:
-                # 8 आल्यास L1 पुन्हा सुरू करा
                 se_level = 1
-                se_target = 6
             else:
                 if se_level == 1:
                     se_level = 2
-                    se_target = 4
                 else:
                     se_fails += 1
                     se_active = False
@@ -167,7 +162,6 @@ def get_100_rounds_stats(full_history):
             if num == 8:
                 se_active = True
                 se_level = 1
-                se_target = 6
                 
     return se_wins, se_fails, max_level
 
@@ -210,7 +204,7 @@ def background_bot_loop():
                         bot_state["status"] = "PREDICTING"
                         bot_state["jackpot"] = False
                         
-                        print(f"✅ Initialized at Ticket: {issue} | Fetched 100 Rounds Data | Super 8 Ready")
+                        print(f"✅ Initialized at Ticket: {issue} | Fetched 100 Rounds Data | Super 8 Dual Ready")
 
                     elif last_processed != issue:
                         print("\n" + "=" * 55)
@@ -247,43 +241,37 @@ def background_bot_loop():
                                     bot_state["circle_count"] = 1
                                 bot_state["bs_pred"] = bot_state["circle_current_target"]
 
-                            # --- 2. SUPER 8 Evaluation ---
+                            # --- 2. SUPER 8 DUAL Evaluation ---
                             bot_state["se_mega_win"] = False
                             
                             if bot_state["se_active"]:
-                                if number == bot_state["se_target"]:
-                                    print(f"   👉 🎱🔥 SUPER 8 WIN! (Won at L{bot_state['se_level']} with {number}) 🔥🎱")
+                                if number in [4, 6]:
+                                    print(f"   👉 🎱🔥 SUPER 8 DUAL WIN! (Won at L{bot_state['se_level']} with {number}) 🔥🎱")
                                     se_res_status = f"🎱 ✅ WIN (L{bot_state['se_level']} - Num {number})"
                                     bot_state["se_mega_win"] = True
                                     bot_state["se_active"] = False
                                     bot_state["se_level"] = 0
-                                    bot_state["se_target"] = None
                                 elif number == 8:
-                                    # 8 परत आल्यास L1 नव्याने चालू करा
                                     print(f"   👉 🎱 Got '8' again! Restarting Super 8 Level 1.")
                                     se_res_status = f"🎱 ❌ FAIL (Got 8, Restarting L1)"
                                     bot_state["se_level"] = 1
-                                    bot_state["se_target"] = 6
                                 else:
                                     if bot_state["se_level"] == 1:
                                         print(f"   👉 ❌ Super 8 L1 Fail. Moving to L2.")
-                                        se_res_status = f"🎱 ❌ FAIL (L1 Target {bot_state['se_target']})"
+                                        se_res_status = f"🎱 ❌ FAIL (L1 Targets 4 & 6)"
                                         bot_state["se_level"] = 2
-                                        bot_state["se_target"] = 4
                                     else:
                                         print(f"   👉 ⚠️ 🛑 SUPER 8 STOP LOSS HIT!")
                                         se_res_status = f"🎱 ❌ FAIL L2 [🛑 STOP]"
                                         bot_state["se_active"] = False
                                         bot_state["se_level"] = 0
-                                        bot_state["se_target"] = None
 
                             # --- 3. Super 8 Trigger Checker for Next Round ---
                             if not bot_state["se_active"]:
                                 if number == 8:
                                     bot_state["se_active"] = True
                                     bot_state["se_level"] = 1
-                                    bot_state["se_target"] = 6
-                                    print(f"   🚨 SUPER 8 TRIGGER: '8' Appeared! Alert L1 Started.")
+                                    print(f"   🚨 SUPER 8 TRIGGER: '8' Appeared! Alert L1 (Nums 4 & 6) Started.")
 
                             bot_state["last_result"] = f"B/S: {bs_res_status}"
                             if se_res_status != "":
@@ -300,10 +288,10 @@ def background_bot_loop():
                         # ---------------- 4. PREDICTION CONSOLE OUTPUT ----------------
                         print("-" * 55)
                         print(f"🎟️ PREDICTION FOR NEXT TICKET: {next_issue}")
-                        print(f"📈 100 Rounds Stats -> Super 8: {bot_state['se_wins_100']} Wins, {bot_state['se_fails_100']} Fails | Max B/S Lvl: L{bot_state['max_lvl_100']}")
+                        print(f"📈 100 Rounds Stats -> Super 8 Dual: {bot_state['se_wins_100']} Wins, {bot_state['se_fails_100']} Fails | Max B/S Lvl: L{bot_state['max_lvl_100']}")
                         
                         if bot_state["se_active"]:
-                            print(f"🔮 Super 8 Prediction: 🎱 Number {bot_state['se_target']} - Level {bot_state['se_level']}")
+                            print(f"🔮 Super 8 Prediction: 🎱 Numbers {bot_state['se_target']} - Level {bot_state['se_level']}")
                         else:
                             print(f"🔮 Super 8 Prediction: Waiting for '8'")
                         print("=" * 55)
@@ -334,8 +322,9 @@ def background_bot_loop():
                             text += f"📏 *B/S Pred:* {bot_state['bs_pred']} (L{bot_state['bs_level_num']}){mode_text}\n\n"
                             
                             if bot_state["se_active"]:
-                                text += f"⚠️ 🎱 *SUPER 8 ALERT!*\n"
-                                text += f"🎯 *Target Number:* {bot_state['se_target']} (L{bot_state['se_level']})\n"
+                                text += f"⚠️ 🎱 *SUPER 8 DUAL ALERT!*\n"
+                                text += f"🎯 *Target Numbers:* {bot_state['se_target']}\n"
+                                text += f"📈 *Level:* L{bot_state['se_level']} (Max L2)\n"
                             else:
                                 text += f"⏸️ *Super 8 Status:* Waiting for number 8\n"
 
@@ -417,7 +406,7 @@ HTML_TEMPLATE = """
                     
                     const seInfo = document.getElementById('se_info');
                     if (data.se_active) {
-                        seInfo.innerText = "⚠️ Num " + data.se_target + " (L" + data.se_level + ")";
+                        seInfo.innerText = "⚠️ Nums " + data.se_target + " (L" + data.se_level + ")";
                         seInfo.className = "violet-active";
                     } else {
                         seInfo.innerText = "⏸️ WAITING (No 8 yet)";

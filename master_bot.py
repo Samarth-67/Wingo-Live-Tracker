@@ -25,7 +25,7 @@ def create_state(name, interval):
         "last_processed_issue": None,
         "bs_pred": None, "bs_level": 1, "bs_active": True, "bs_fails_in_row": 0,
         
-        # --- NEW 3-CIRCLE STRATEGY VARIABLES ---
+        # --- 3-CIRCLE STRATEGY VARIABLES ---
         "mode": "normal",
         "circle_current_target": None, 
         "circle_count": 0,
@@ -34,7 +34,7 @@ def create_state(name, interval):
         "history": [],
         "stats": {"bs_win": 0, "bs_fail": 0, "bs_skip": 0, "total_trades": 0},
         "active_until": 0,       
-        "active_chat_id": None,   # जिथे पासवर्ड टाकला जाईल तो ग्रुप/चॅट आयडी इथे सेव्ह होईल
+        "active_chat_id": None,   
         "notified_sleep": True,
         "live_records": []
     }
@@ -71,12 +71,12 @@ def telegram_listener():
                                 state_30s["active_until"] = time.time() + 3600
                                 state_30s["active_chat_id"] = chat_id
                                 state_30s["notified_sleep"] = False
-                                send_telegram_message_direct(chat_id, "✅ *[30S Strategy] Activated for 1 Hour in this Group!*")
+                                send_telegram_message_direct(chat_id, "✅ *[30S Strategy] Activated for 1 Hour!*")
                             elif pwd == PASS_1M:
                                 state_1m["active_until"] = time.time() + 3600
                                 state_1m["active_chat_id"] = chat_id
                                 state_1m["notified_sleep"] = False
-                                send_telegram_message_direct(chat_id, "✅ *[1M Strategy] Activated for 1 Hour in this Group!*")
+                                send_telegram_message_direct(chat_id, "✅ *[1M Strategy] Activated for 1 Hour!*")
                             else:
                                 send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
         except Exception:
@@ -103,7 +103,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     if state["bs_active"]:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
         text += f"📏 *Prediction:* *{bs_pred_text}*\n"
-        mode_text = "(3-Circle Mode)" if state["mode"] == "3-circle" else ""
+        mode_text = "(🔄 3-Circle Mode)" if state["mode"] == "3-circle" else ""
         text += f"🎯 *Level:* L{bs_level} {mode_text}\n\n"
     else:
         text += f"📏 *Prediction:* ⏸️ *WAIT FOR PATTERN*\n"
@@ -170,7 +170,7 @@ def process_strategy(state, records):
                 state["stats"]["bs_win"] += 1
                 state["bs_level"] = 1 
                 state["bs_fails_in_row"] = 0 
-                state["mode"] = "normal"  # Reset back to normal mode on WIN
+                state["mode"] = "normal"  # 🟢 जिंकल्यावर पुन्हा नॉर्मल मोडवर येईल
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
             else:
                 state["stats"]["bs_fail"] += 1
@@ -198,22 +198,21 @@ def process_strategy(state, records):
         # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> 3-CIRCLE MODE) 🚀
         # =======================================================
         if state["mode"] == "normal":
-            # इथे थेट 'bs_level' चेक करत आहोत. 
-            # तिसरी लेव्हल फेल झाल्यावर बोट चौथ्या (4) लेव्हलला जातो, त्यामुळे आपण >= 4 लावले आहे.
+            # जर लेव्हल ४ सुरु झाली असेल (म्हणजे लेव्हल ३ फेल झाली आहे)
             if state["bs_level"] >= 4: 
                 state["mode"] = "3-circle"
+                # जो निकाल आत्ताच आलाय (ज्यामुळे आपली L3 फेल झाली), तोच 'टार्गेट' म्हणून निवडेल
                 state["circle_current_target"] = latest_bs
                 state["circle_count"] = 1
                 state["bs_pred"] = state["circle_current_target"]
             else:
-                # Normal trend-following
+                # नॉर्मल ट्रेंड फॉलो करणे
                 state["bs_pred"] = latest_bs
                 
         elif state["mode"] == "3-circle":
-            # If we're here, we lost in 3-circle mode (a win resets mode to 'normal' above)
             state["circle_count"] += 1
+            # जर एकाच रंगाचे ३ कॉल्स पूर्ण झाले असतील, तर दुसऱ्या रंगाकडे वळणे
             if state["circle_count"] > 3:
-                # Switch target after 3 iterations (Big <-> Small)
                 state["circle_current_target"] = "Small" if state["circle_current_target"] == "Big" else "Big"
                 state["circle_count"] = 1
             

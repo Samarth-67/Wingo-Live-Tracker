@@ -9,9 +9,11 @@ from rich.align import Align
 from rich.live import Live
 
 console = Console()
-
-# --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-TELEGRAM_TOKEN = "8808901816:AAFTYigKQeeH5--jw6KDM_aAlsL9SIZCCXo" 
+# ---------------- TELEGRAM BOT CONFIGURATION ----------------
+TELEGRAM_BOT_TOKEN = "8886107397:AAHENOebGnrupxvGKqKh5cKC3SmujXJOV3w"
+SECRET_PASSWORD = "12345"
+TARGET_CHANNEL_ID = "-1004370895879"  # <--- तुझा चॅनेल आयडी
+# ------------------------------------------------------------
 
 # 🔐 सिक्रेट पासवर्ड्स
 PASS_30S = "11111"  # ३० सेकंदाच्या गेमसाठी

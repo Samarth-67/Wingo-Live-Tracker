@@ -9,11 +9,9 @@ from rich.align import Align
 from rich.live import Live
 
 console = Console()
-# ---------------- TELEGRAM BOT CONFIGURATION ----------------
-TELEGRAM_BOT_TOKEN = "8886107397:AAHENOebGnrupxvGKqKh5cKC3SmujXJOV3w"
-SECRET_PASSWORD = "12345"
-TARGET_CHANNEL_ID = "-1004370895879"  # <--- तुझा चॅनेल आयडी
-# ------------------------------------------------------------
+
+# --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
+TELEGRAM_TOKEN = "8808901816:AAFTYigKQeeH5--jw6KDM_aAlsL9SIZCCXo" 
 
 # 🔐 सिक्रेट पासवर्ड्स
 PASS_30S = "11111"  # ३० सेकंदाच्या गेमसाठी
@@ -143,7 +141,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None, prev
         if prev_violet_res:
             text += f"🟣 Violet: {prev_violet_res}\n"
             
-        if "WIN" in prev_bs_res or state["violet_mega_win"]: 
+        if (prev_bs_res and "WIN" in prev_bs_res) or state["violet_mega_win"]: 
             text += f"\n🔥🎉 *CONGRATS! WIN!* 🎉🔥\n"
             
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"

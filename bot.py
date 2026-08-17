@@ -31,8 +31,8 @@ bot_state = {
     "full_history": [],
     "hot_gap": None,
     "hot_number": None,
-    "v_count_100": 0,     # मागच्या १०० मध्ये वॉयलेट किती आले
-    "max_lvl_100": 1,     # मागच्या १०० मध्ये B/S ची जास्तीत जास्त लेव्हल
+    "v_count_100": 0,
+    "max_lvl_100": 1,
     
     "violet_alert_active": False,   
     "violet_alert_type": "None",      
@@ -229,7 +229,7 @@ def background_bot_loop():
                         print(f"🎲 Number Came: {number}")
 
                         bs_res_status = None
-                        violet_res_status = None
+                        violet_res_status = ""  # इथे रिकामी स्ट्रिंग वापरली आहे (खोटा मेसेज टाळण्यासाठी)
 
                         if bot_state["status"] == "PREDICTING":
                             # --- 1. Big/Small Logic (Trend + 3-Circle) ---
@@ -267,8 +267,8 @@ def background_bot_loop():
                                     violet_res_status = f"🟣 ✅ AI WIN (L{bot_state['violet_level']})"
                                     bot_state["violet_mega_win"] = True
                                 else:
-                                    print("   👉 🟣 Normal Violet Win! (No active AI alert)")
-                                    violet_res_status = "🟣 ✅ WIN"
+                                    print("   👉 🟣 Violet Appeared! (Resetting gap, no message to Telegram)")
+                                    violet_res_status = ""  # जर अलर्ट नसेल, तर मेसेजमध्ये काहीही जाणार नाही
                                     
                                 bot_state["violet_gap"] = 0 
                                 bot_state["violet_alert_active"] = False
@@ -291,6 +291,7 @@ def background_bot_loop():
                                         bot_state["violet_level"] += 1
                                 else:
                                     print(f"   👉 No Violet. Current Gap: {bot_state['violet_gap']}")
+                                    violet_res_status = ""
 
                             # --- 3. AI Trigger Checker for Next Round ---
                             if not bot_state["violet_alert_active"] and len(bot_state["full_history"]) >= 20:
@@ -306,7 +307,7 @@ def background_bot_loop():
                                     print(f"   🚨 AI TRIGGER: Result '{number}' matches Hot Number! Alert L1 Started.")
 
                             bot_state["last_result"] = f"B/S: {bs_res_status}"
-                            if violet_res_status:
+                            if violet_res_status != "":
                                 bot_state["last_result"] += f" | Violet: {violet_res_status}"
 
                         next_issue = str(int(issue) + 1) if issue.isdigit() else "Next"
@@ -339,7 +340,9 @@ def background_bot_loop():
                             if bs_res_status:
                                 text += f"🔄 *Result for {issue}:*\n"
                                 text += f"📏 B/S: {bs_res_status}\n"
-                                if violet_res_status:
+                                
+                                # जर अलर्ट असेल तरच वॉयलेटचा मेसेज ऍड होईल
+                                if violet_res_status != "":
                                     text += f"🟣 Violet: {violet_res_status}\n"
                                     
                                 if bot_state["violet_mega_win"]:
@@ -469,22 +472,3 @@ HTML_TEMPLATE = """
     </script>
 </body>
 </html>
-"""
-
-@app.route('/')
-def index():
-    return render_template_string(HTML_TEMPLATE)
-
-@app.route('/data')
-def get_data():
-    return jsonify(bot_state)
-
-if __name__ == '__main__':
-    t1 = threading.Thread(target=background_bot_loop, daemon=True)
-    t1.start()
-    
-    t2 = threading.Thread(target=telegram_listener, daemon=True)
-    t2.start()
-    
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)

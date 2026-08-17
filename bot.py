@@ -20,24 +20,22 @@ bot_state = {
     "bs_pred": "-", "bs_level_num": 1, "bs_level": "L1",
     "last_result": "Bot is initializing...",
     "jackpot": False,
-    "violet_gap": 0,
     
     # --- 3-Circle Strategy Variables ---
     "mode": "normal",
     "circle_current_target": None, 
     "circle_count": 0,
     
-    # AI Violet Strategy States & 100 Rounds Data
+    # --- SUPER 8 Strategy States & 100 Rounds Data ---
     "full_history": [],
-    "hot_gap": None,
-    "hot_number": None,
-    "v_count_100": 0,     # मागच्या १०० मध्ये 'जिंकलेले' AI वॉयलेट
+    "se_wins_100": 0,     # मागच्या १०० मध्ये 'सुपर 8' ने जिंकलेले
+    "se_fails_100": 0,    # मागच्या १०० मध्ये 'सुपर 8' फेल गेलेले
     "max_lvl_100": 1,     # मागच्या १०० मध्ये B/S ची जास्तीत जास्त लेव्हल
     
-    "violet_alert_active": False,   
-    "violet_alert_type": "None",      
-    "violet_level": 0,              
-    "violet_mega_win": False,       
+    "se_active": False,   
+    "se_level": 0,              
+    "se_target": None,       
+    "se_mega_win": False,
     
     "active_until": 0,
     "notified_sleep": True
@@ -45,7 +43,7 @@ bot_state = {
 
 def get_wingo_data():
     ts = int(time.time() * 1000)
-    target_url = f"https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json?ts={ts}"
+    target_url = f"https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json?pageSize=100&pageNumber=1&size=100&page=1&ts={ts}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json",
@@ -90,44 +88,17 @@ def telegram_listener():
                             bot_state["active_until"] = time.time() + 3600
                             bot_state["notified_sleep"] = False
                             print("✅ Bot activated via Telegram!")
-                            send_telegram_message(chat_id, "✅ *Bot Activated! AI Violet + 3-Circle + 100-Round Stats Running!*")
+                            send_telegram_message(chat_id, "✅ *Bot Activated! Super 8 Strategy + 3-Circle Running!*")
                         else:
                             send_telegram_message(chat_id, "❌ Access Denied!")
         except Exception as e:
             pass
         time.sleep(3)
 
-def analyze_violet_history(full_history):
-    if not full_history or len(full_history) < 20:
-        return None, None
-        
-    gaps = []
-    preceding_numbers = {}
-    last_violet_idx = -1
-    
-    for i in range(len(full_history)):
-        num = full_history[i]['number']
-        is_violet = (num == 0 or num == 5)
-        
-        if is_violet:
-            if i + 1 < len(full_history):
-                prev_num = full_history[i+1]['number']
-                preceding_numbers[prev_num] = preceding_numbers.get(prev_num, 0) + 1
-            
-            if last_violet_idx != -1:
-                gap = i - last_violet_idx - 1
-                gaps.append(gap)
-            
-            last_violet_idx = i
-            
-    hot_gap = max(set(gaps), key=gaps.count) if gaps else None
-    hot_number = max(preceding_numbers, key=preceding_numbers.get) if preceding_numbers else None
-    return hot_gap, hot_number
-
 def get_100_rounds_stats(full_history):
-    # आता हे फक्त आपल्या 'सिग्नल' वर जिंकलेले वॉयलेट मोजेल (Backtesting Simulation)
+    # Calculate Super 8 Wins/Fails and Max B/S Level
     if not full_history or len(full_history) < 2:
-        return 0, 1
+        return 0, 0, 1
         
     history_asc = sorted(full_history, key=lambda x: x['issue'])
     
@@ -138,15 +109,15 @@ def get_100_rounds_stats(full_history):
     circle_target = None
     circle_count = 0
     
-    ai_violet_wins = 0
-    sim_violet_gap = 0
-    ai_alert_active = False
-    ai_level = 0
+    se_wins = 0
+    se_fails = 0
+    se_active = False
+    se_level = 0
+    se_target = None
     
-    for i, item in enumerate(history_asc):
+    for item in history_asc:
         num = item['number']
         actual_bs = "Big" if num >= 5 else "Small"
-        is_violet = (num == 0 or num == 5)
         
         # --- B/S Logic Simulation ---
         if bs_pred is None:
@@ -175,34 +146,30 @@ def get_100_rounds_stats(full_history):
                     circle_count = 1
                 bs_pred = circle_target
 
-        # --- Violet Logic Simulation (फक्त सिग्नलचे वॉयलेट मोजणे) ---
-        if is_violet:
-            if ai_alert_active:
-                ai_violet_wins += 1 # फक्त आपला सिग्नल असतानाच वॉयलेट आला तर 'विन' मोजेल
-            sim_violet_gap = 0
-            ai_alert_active = False
-            ai_level = 0
-        else:
-            sim_violet_gap += 1
-            if ai_alert_active:
-                if ai_level >= 2:
-                    ai_alert_active = False
-                    ai_level = 0
+        # --- Super 8 Logic Simulation ---
+        if se_active:
+            if num == se_target:
+                se_wins += 1
+                se_active = False
+            elif num == 8:
+                # 8 आल्यास L1 पुन्हा सुरू करा
+                se_level = 1
+                se_target = 6
+            else:
+                if se_level == 1:
+                    se_level = 2
+                    se_target = 4
                 else:
-                    ai_level += 1
+                    se_fails += 1
+                    se_active = False
                     
-        # Check trigger for next round (Need at least 20 rounds history)
-        past_slice = history_asc[:i+1][::-1] 
-        if not ai_alert_active and len(past_slice) >= 20:
-            h_gap, h_num = analyze_violet_history(past_slice)
-            if h_gap is not None and sim_violet_gap == h_gap:
-                ai_alert_active = True
-                ai_level = 1
-            elif h_num is not None and num == h_num:
-                ai_alert_active = True
-                ai_level = 1
+        if not se_active:
+            if num == 8:
+                se_active = True
+                se_level = 1
+                se_target = 6
                 
-    return ai_violet_wins, max_level
+    return se_wins, se_fails, max_level
 
 def background_bot_loop():
     global bot_state
@@ -212,7 +179,7 @@ def background_bot_loop():
         try:
             records = get_wingo_data()
             if records:
-                # ---------------- Update Full History for AI & Stats ----------------
+                # ---------------- Update Full History & Stats ----------------
                 for r in records:
                     iss = str(r.get("issueNumber") or r.get("issue") or "")
                     num_str = str(r.get("number") or r.get("drawNumber") or "")
@@ -223,12 +190,9 @@ def background_bot_loop():
                 bot_state["full_history"].sort(key=lambda x: x['issue'], reverse=True)
                 bot_state["full_history"] = bot_state["full_history"][:100]
                 
-                h_gap, h_num = analyze_violet_history(bot_state["full_history"])
-                bot_state["hot_gap"] = h_gap
-                bot_state["hot_number"] = h_num
-                
-                v_count, max_lvl = get_100_rounds_stats(bot_state["full_history"])
-                bot_state["v_count_100"] = v_count
+                wins_100, fails_100, max_lvl = get_100_rounds_stats(bot_state["full_history"])
+                bot_state["se_wins_100"] = wins_100
+                bot_state["se_fails_100"] = fails_100
                 bot_state["max_lvl_100"] = max_lvl
                 # --------------------------------------------------------------------
 
@@ -239,7 +203,6 @@ def background_bot_loop():
                 if num_str.isdigit():
                     number = int(num_str)
                     actual_bs = "Big" if number >= 5 else "Small"
-                    is_violet = (number == 0 or number == 5)
 
                     if last_processed is None:
                         last_processed = issue
@@ -247,14 +210,7 @@ def background_bot_loop():
                         bot_state["status"] = "PREDICTING"
                         bot_state["jackpot"] = False
                         
-                        gap = 0
-                        for r in records:
-                            n_str = str(r.get("number", "-"))
-                            if n_str.isdigit() and (int(n_str) == 0 or int(n_str) == 5): break
-                            gap += 1
-                        bot_state["violet_gap"] = gap
-                        
-                        print(f"✅ Initialized at Ticket: {issue} | AI Training Ready")
+                        print(f"✅ Initialized at Ticket: {issue} | Fetched 100 Rounds Data | Super 8 Ready")
 
                     elif last_processed != issue:
                         print("\n" + "=" * 55)
@@ -262,7 +218,7 @@ def background_bot_loop():
                         print(f"🎲 Number Came: {number}")
 
                         bs_res_status = None
-                        violet_res_status = ""  
+                        se_res_status = ""  
 
                         if bot_state["status"] == "PREDICTING":
                             # --- 1. Big/Small Logic (Trend + 3-Circle) ---
@@ -291,57 +247,47 @@ def background_bot_loop():
                                     bot_state["circle_count"] = 1
                                 bot_state["bs_pred"] = bot_state["circle_current_target"]
 
-                            # --- 2. AI Violet Evaluation ---
-                            bot_state["violet_mega_win"] = False
+                            # --- 2. SUPER 8 Evaluation ---
+                            bot_state["se_mega_win"] = False
                             
-                            if is_violet:
-                                if bot_state["violet_alert_active"]:
-                                    print(f"   👉 🟣🔥 VIOLET AI MEGA WIN! ({bot_state['violet_alert_type']} Success at L{bot_state['violet_level']}) 🔥🟣")
-                                    violet_res_status = f"🟣 ✅ AI WIN (L{bot_state['violet_level']})"
-                                    bot_state["violet_mega_win"] = True
+                            if bot_state["se_active"]:
+                                if number == bot_state["se_target"]:
+                                    print(f"   👉 🎱🔥 SUPER 8 WIN! (Won at L{bot_state['se_level']} with {number}) 🔥🎱")
+                                    se_res_status = f"🎱 ✅ WIN (L{bot_state['se_level']} - Num {number})"
+                                    bot_state["se_mega_win"] = True
+                                    bot_state["se_active"] = False
+                                    bot_state["se_level"] = 0
+                                    bot_state["se_target"] = None
+                                elif number == 8:
+                                    # 8 परत आल्यास L1 नव्याने चालू करा
+                                    print(f"   👉 🎱 Got '8' again! Restarting Super 8 Level 1.")
+                                    se_res_status = f"🎱 ❌ FAIL (Got 8, Restarting L1)"
+                                    bot_state["se_level"] = 1
+                                    bot_state["se_target"] = 6
                                 else:
-                                    print("   👉 🟣 Violet Appeared! (Resetting gap, no message to Telegram)")
-                                    violet_res_status = ""  
-                                    
-                                bot_state["violet_gap"] = 0 
-                                bot_state["violet_alert_active"] = False
-                                bot_state["violet_alert_type"] = "None"
-                                bot_state["violet_level"] = 0
-                            else:
-                                bot_state["violet_gap"] += 1
-                                
-                                if bot_state["violet_alert_active"]:
-                                    print(f"   👉 ❌ AI {bot_state['violet_alert_type']} Level {bot_state['violet_level']} Fail")
-                                    violet_res_status = f"🟣 ❌ FAIL ({bot_state['violet_alert_type']} L{bot_state['violet_level']})"
-                                    
-                                    if bot_state["violet_level"] >= 2:
-                                        print("   ⚠️ 🛑 AI STOP LOSS HIT! Waiting for next exact AI pattern.")
-                                        violet_res_status += " [🛑 STOP]"
-                                        bot_state["violet_alert_active"] = False
-                                        bot_state["violet_alert_type"] = "None"
-                                        bot_state["violet_level"] = 0
+                                    if bot_state["se_level"] == 1:
+                                        print(f"   👉 ❌ Super 8 L1 Fail. Moving to L2.")
+                                        se_res_status = f"🎱 ❌ FAIL (L1 Target {bot_state['se_target']})"
+                                        bot_state["se_level"] = 2
+                                        bot_state["se_target"] = 4
                                     else:
-                                        bot_state["violet_level"] += 1
-                                else:
-                                    print(f"   👉 No Violet. Current Gap: {bot_state['violet_gap']}")
-                                    violet_res_status = ""
+                                        print(f"   👉 ⚠️ 🛑 SUPER 8 STOP LOSS HIT!")
+                                        se_res_status = f"🎱 ❌ FAIL L2 [🛑 STOP]"
+                                        bot_state["se_active"] = False
+                                        bot_state["se_level"] = 0
+                                        bot_state["se_target"] = None
 
-                            # --- 3. AI Trigger Checker for Next Round ---
-                            if not bot_state["violet_alert_active"] and len(bot_state["full_history"]) >= 20:
-                                if bot_state["hot_gap"] is not None and bot_state["violet_gap"] == bot_state["hot_gap"]:
-                                    bot_state["violet_alert_active"] = True
-                                    bot_state["violet_alert_type"] = f"AI Hot Gap ({bot_state['hot_gap']})"
-                                    bot_state["violet_level"] = 1
-                                    print(f"   🚨 AI TRIGGER: Current Gap matches Hot Gap ({bot_state['hot_gap']})! Alert L1 Started.")
-                                elif bot_state["hot_number"] is not None and number == bot_state["hot_number"]:
-                                    bot_state["violet_alert_active"] = True
-                                    bot_state["violet_alert_type"] = f"AI Hot Num ({bot_state['hot_number']})"
-                                    bot_state["violet_level"] = 1
-                                    print(f"   🚨 AI TRIGGER: Result '{number}' matches Hot Number! Alert L1 Started.")
+                            # --- 3. Super 8 Trigger Checker for Next Round ---
+                            if not bot_state["se_active"]:
+                                if number == 8:
+                                    bot_state["se_active"] = True
+                                    bot_state["se_level"] = 1
+                                    bot_state["se_target"] = 6
+                                    print(f"   🚨 SUPER 8 TRIGGER: '8' Appeared! Alert L1 Started.")
 
                             bot_state["last_result"] = f"B/S: {bs_res_status}"
-                            if violet_res_status != "":
-                                bot_state["last_result"] += f" | Violet: {violet_res_status}"
+                            if se_res_status != "":
+                                bot_state["last_result"] += f" | Super 8: {se_res_status}"
 
                         next_issue = str(int(issue) + 1) if issue.isdigit() else "Next"
                         
@@ -354,31 +300,29 @@ def background_bot_loop():
                         # ---------------- 4. PREDICTION CONSOLE OUTPUT ----------------
                         print("-" * 55)
                         print(f"🎟️ PREDICTION FOR NEXT TICKET: {next_issue}")
-                        print(f"📊 AI Status: Hot Gap = {bot_state['hot_gap']} | Hot Num = {bot_state['hot_number']}")
-                        print(f"📈 100 Rounds Stats -> AI Violets Won: {bot_state['v_count_100']} | Max B/S Level: L{bot_state['max_lvl_100']}")
+                        print(f"📈 100 Rounds Stats -> Super 8: {bot_state['se_wins_100']} Wins, {bot_state['se_fails_100']} Fails | Max B/S Lvl: L{bot_state['max_lvl_100']}")
                         
-                        if bot_state["violet_alert_active"]:
-                            print(f"🔮 Violet Prediction: 🟣 {bot_state['violet_alert_type']} - Level {bot_state['violet_level']}")
+                        if bot_state["se_active"]:
+                            print(f"🔮 Super 8 Prediction: 🎱 Number {bot_state['se_target']} - Level {bot_state['se_level']}")
                         else:
-                            print(f"🔮 Violet Prediction: Waiting for AI match (Current Gap {bot_state['violet_gap']})")
+                            print(f"🔮 Super 8 Prediction: Waiting for '8'")
                         print("=" * 55)
 
                         # Send Telegram Signal if active
                         if bot_state["active_until"] > 0 and time.time() < bot_state["active_until"]:
                             text = f"🚀 *VSR WINGO Signals 1 Minute* 🚀\n\n"
                             
-                            text += f"🧠 *AI DATA:* Hot Gap [{bot_state['hot_gap']}] | Hot Num [{bot_state['hot_number']}]\n"
-                            text += f"📊 *LAST 100:* 🟣 AI Violets Won: {bot_state['v_count_100']} | 📈 Max B/S: L{bot_state['max_lvl_100']}\n\n"
+                            text += f"📊 *LAST 100:* 🎱 Super 8 Wins: {bot_state['se_wins_100']} | 📈 Max B/S: L{bot_state['max_lvl_100']}\n\n"
                             
                             if bs_res_status:
                                 text += f"🔄 *Result for {issue}:*\n"
                                 text += f"📏 B/S: {bs_res_status}\n"
                                 
-                                if violet_res_status != "":
-                                    text += f"🟣 Violet: {violet_res_status}\n"
+                                if se_res_status != "":
+                                    text += f"🎱 Super 8: {se_res_status}\n"
                                     
-                                if bot_state["violet_mega_win"]:
-                                    text += f"\n🟣🔥 *VIOLET AI WIN!* 🔥🟣\n"
+                                if bot_state["se_mega_win"]:
+                                    text += f"\n🎱🔥 *SUPER 8 NUMBER WIN!* 🔥🎱\n"
                                 elif bot_state["jackpot"]:
                                     text += f"\n🔥🎉 *JACKPOT! WIN!* 🎉🔥\n"
                                     
@@ -389,11 +333,11 @@ def background_bot_loop():
                             mode_text = " *(🔄 3-Circle)*" if bot_state.get("mode") == "3-circle" else ""
                             text += f"📏 *B/S Pred:* {bot_state['bs_pred']} (L{bot_state['bs_level_num']}){mode_text}\n\n"
                             
-                            if bot_state["violet_alert_active"]:
-                                text += f"⚠️ 🟣 *{bot_state['violet_alert_type'].upper()}*\n"
-                                text += f"🎯 *Violet Level:* L{bot_state['violet_level']}\n"
+                            if bot_state["se_active"]:
+                                text += f"⚠️ 🎱 *SUPER 8 ALERT!*\n"
+                                text += f"🎯 *Target Number:* {bot_state['se_target']} (L{bot_state['se_level']})\n"
                             else:
-                                text += f"⏸️ *Violet Status:* Analyzing Pattern (Gap: {bot_state['violet_gap']})\n"
+                                text += f"⏸️ *Super 8 Status:* Waiting for number 8\n"
 
                             send_telegram_message(TARGET_CHANNEL_ID, text)
                         elif bot_state["active_until"] > 0 and time.time() >= bot_state["active_until"]:
@@ -411,7 +355,7 @@ HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>VSR Wingo Live AI Dashboard</title>
+    <title>VSR Wingo Live Super 8 Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; padding: 20px; }
@@ -421,11 +365,11 @@ HTML_TEMPLATE = """
         .ai-stats { background: #020617; padding: 10px; border-radius: 8px; font-size: 13px; color: #fbbf24; margin-bottom: 15px; border: 1px solid #fbbf24; line-height: 1.6;}
         .metric { background: #334155; margin: 12px 0; padding: 15px; border-radius: 10px; font-size: 16px; text-align: left; display: flex; justify-content: space-between; align-items: center; }
         .highlight { color: #4ade80; font-weight: bold; font-size: 18px; }
-        .violet-active { color: #c084fc; font-weight: bold; font-size: 15px; animation: pulse 1.5s infinite; }
+        .violet-active { color: #facc15; font-weight: bold; font-size: 15px; animation: pulse 1.5s infinite; }
         .violet-waiting { color: #94a3b8; font-size: 15px; }
         .result-box { background: #0f172a; margin-top: 15px; padding: 12px; border-radius: 8px; font-size: 13px; color: #cbd5e1; text-align: left; border-left: 4px solid #38bdf8; }
         .jackpot { background: #eab308; color: #000; font-weight: bold; padding: 12px; border-radius: 8px; margin-top: 15px; font-size: 15px; display: none; animation: pulse 1.5s infinite; }
-        .mega-win { background: #9333ea; color: #fff; font-weight: bold; padding: 12px; border-radius: 8px; margin-top: 15px; font-size: 15px; display: none; animation: pulse 1s infinite; }
+        .mega-win { background: #eab308; color: #000; font-weight: bold; padding: 12px; border-radius: 8px; margin-top: 15px; font-size: 15px; display: none; animation: pulse 1s infinite; }
         .status-badge { background: #ef4444; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
         .status-active { background: #22c55e; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
@@ -433,26 +377,26 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="card">
-        <h1>🚀 VSR WINGO AI Dashboard</h1>
+        <h1>🚀 VSR WINGO Super 8 Dashboard</h1>
         <div class="subtitle">
             Signals Status: <span id="timer_status" class="status-badge">INACTIVE</span>
         </div>
         
         <div class="ai-stats">
-            🧠 <b>Live AI Analytics:</b> <br>
-            Hot Gap: <span id="hot_gap">-</span> | Hot Number: <span id="hot_num">-</span><br>
-            📊 <b>Last 100:</b> AI Violet Wins: <span id="v_100">0</span> | Max B/S: L<span id="max_l_100">1</span>
+            🎯 <b>Super 8 Analytics (Last 100):</b> <br>
+            Wins: <span id="se_wins">0</span> | Fails: <span id="se_fails">0</span><br>
+            📈 <b>Max B/S Trend:</b> L<span id="max_l_100">1</span>
         </div>
         
         <div class="metric"><span>🎟️ Next Ticket:</span> <span class="highlight" id="last_issue">Loading...</span></div>
         <div class="metric"><span>📏 B/S Pred:</span> <span class="highlight" id="bs_info">-</span></div>
-        <div class="metric"><span>🟣 Violet Pred:</span> <span id="violet_info">Analyzing...</span></div>
+        <div class="metric"><span>🎱 Super 8 Pred:</span> <span id="se_info">Analyzing...</span></div>
         
         <div class="result-box" id="last_result">
             <b>📊 Last Trade Status:</b><br>Initializing...
         </div>
 
-        <div class="mega-win" id="mega_win_box">🟣🔥 VIOLET AI WIN! 🔥🟣</div>
+        <div class="mega-win" id="mega_win_box">🎱🔥 SUPER 8 NUMBER WIN! 🔥🎱</div>
         <div class="jackpot" id="jackpot_box">🔥🎉 JACKPOT! WIN! 🎉🔥</div>
     </div>
 
@@ -467,27 +411,26 @@ HTML_TEMPLATE = """
                     if(data.mode === "3-circle") { bsText += " 🔄 3-Circle"; }
                     document.getElementById('bs_info').innerText = bsText;
                     
-                    document.getElementById('hot_gap').innerText = data.hot_gap !== null ? data.hot_gap : "Calc...";
-                    document.getElementById('hot_num').innerText = data.hot_number !== null ? data.hot_number : "Calc...";
-                    document.getElementById('v_100').innerText = data.v_count_100;
+                    document.getElementById('se_wins').innerText = data.se_wins_100;
+                    document.getElementById('se_fails').innerText = data.se_fails_100;
                     document.getElementById('max_l_100').innerText = data.max_lvl_100;
                     
-                    const vInfo = document.getElementById('violet_info');
-                    if (data.violet_alert_active) {
-                        vInfo.innerText = "⚠️ " + data.violet_alert_type + " (L" + data.violet_level + ")";
-                        vInfo.className = "violet-active";
+                    const seInfo = document.getElementById('se_info');
+                    if (data.se_active) {
+                        seInfo.innerText = "⚠️ Num " + data.se_target + " (L" + data.se_level + ")";
+                        seInfo.className = "violet-active";
                     } else {
-                        vInfo.innerText = "⏸️ WAITING (Gap: " + data.violet_gap + ")";
-                        vInfo.className = "violet-waiting";
+                        seInfo.innerText = "⏸️ WAITING (No 8 yet)";
+                        seInfo.className = "violet-waiting";
                     }
                     
                     document.getElementById('last_result').innerHTML = "<b>📊 Last Trade Status:</b><br>" + data.last_result;
                     
                     const mw = document.getElementById('mega_win_box');
-                    if (data.violet_mega_win) { mw.style.display = 'block'; } else { mw.style.display = 'none'; }
+                    if (data.se_mega_win) { mw.style.display = 'block'; } else { mw.style.display = 'none'; }
                     
                     const jp = document.getElementById('jackpot_box');
-                    if (data.jackpot && !data.violet_mega_win) { jp.style.display = 'block'; } else { jp.style.display = 'none'; }
+                    if (data.jackpot && !data.se_mega_win) { jp.style.display = 'block'; } else { jp.style.display = 'none'; }
 
                     const statusBadge = document.getElementById('timer_status');
                     if (data.active_until > (Date.now() / 1000)) {

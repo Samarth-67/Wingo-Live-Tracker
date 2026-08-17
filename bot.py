@@ -229,7 +229,7 @@ def background_bot_loop():
                         print(f"🎲 Number Came: {number}")
 
                         bs_res_status = None
-                        violet_res_status = ""  # इथे रिकामी स्ट्रिंग वापरली आहे (खोटा मेसेज टाळण्यासाठी)
+                        violet_res_status = ""  
 
                         if bot_state["status"] == "PREDICTING":
                             # --- 1. Big/Small Logic (Trend + 3-Circle) ---
@@ -268,7 +268,7 @@ def background_bot_loop():
                                     bot_state["violet_mega_win"] = True
                                 else:
                                     print("   👉 🟣 Violet Appeared! (Resetting gap, no message to Telegram)")
-                                    violet_res_status = ""  # जर अलर्ट नसेल, तर मेसेजमध्ये काहीही जाणार नाही
+                                    violet_res_status = ""  
                                     
                                 bot_state["violet_gap"] = 0 
                                 bot_state["violet_alert_active"] = False
@@ -341,7 +341,6 @@ def background_bot_loop():
                                 text += f"🔄 *Result for {issue}:*\n"
                                 text += f"📏 B/S: {bs_res_status}\n"
                                 
-                                # जर अलर्ट असेल तरच वॉयलेटचा मेसेज ऍड होईल
                                 if violet_res_status != "":
                                     text += f"🟣 Violet: {violet_res_status}\n"
                                     
@@ -472,3 +471,22 @@ HTML_TEMPLATE = """
     </script>
 </body>
 </html>
+"""
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route('/data')
+def get_data():
+    return jsonify(bot_state)
+
+if __name__ == '__main__':
+    t1 = threading.Thread(target=background_bot_loop, daemon=True)
+    t1.start()
+    
+    t2 = threading.Thread(target=telegram_listener, daemon=True)
+    t2.start()
+    
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)

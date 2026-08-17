@@ -27,12 +27,12 @@ bot_state = {
     "circle_current_target": None, 
     "circle_count": 0,
     
-    # AI Violet Strategy & 100 Rounds Stats
+    # AI Violet Strategy States & 100 Rounds Data
     "full_history": [],
     "hot_gap": None,
     "hot_number": None,
-    "v_count_100": 0,
-    "max_lvl_100": 1,
+    "v_count_100": 0,     # मागच्या १०० मध्ये वॉयलेट किती आले
+    "max_lvl_100": 1,     # मागच्या १०० मध्ये B/S ची जास्तीत जास्त लेव्हल
     
     "violet_alert_active": False,   
     "violet_alert_type": "None",      
@@ -125,13 +125,10 @@ def analyze_violet_history(full_history):
     return hot_gap, hot_number
 
 def get_100_rounds_stats(full_history):
-    # Calculates total violets and the maximum Big/Small level reached in the last 100 rounds
     if not full_history or len(full_history) < 2:
         return 0, 1
         
     violet_count = sum(1 for x in full_history if x['number'] in [0, 5])
-    
-    # Sort history oldest first to simulate correctly
     history_asc = sorted(full_history, key=lambda x: x['issue'])
     
     bs_pred = None
@@ -157,7 +154,6 @@ def get_100_rounds_stats(full_history):
             if bs_level > max_level:
                 max_level = bs_level
                 
-        # Simulate our 3-circle prediction logic
         if mode == "normal":
             if bs_level >= 4:
                 mode = "3-circle"
@@ -183,7 +179,7 @@ def background_bot_loop():
         try:
             records = get_wingo_data()
             if records:
-                # ---------------- Update Full History for AI ----------------
+                # ---------------- Update Full History for AI & Stats ----------------
                 for r in records:
                     iss = str(r.get("issueNumber") or r.get("issue") or "")
                     num_str = str(r.get("number") or r.get("drawNumber") or "")
@@ -198,11 +194,10 @@ def background_bot_loop():
                 bot_state["hot_gap"] = h_gap
                 bot_state["hot_number"] = h_num
                 
-                # Fetch 100 Rounds Stats
                 v_count, max_lvl = get_100_rounds_stats(bot_state["full_history"])
                 bot_state["v_count_100"] = v_count
                 bot_state["max_lvl_100"] = max_lvl
-                # ------------------------------------------------------------
+                # --------------------------------------------------------------------
 
                 latest = records[0]
                 issue = str(latest.get("issueNumber") or latest.get("issue") or latest.get("period") or "-")
@@ -244,11 +239,10 @@ def background_bot_loop():
 
                             if bs_win: 
                                 bot_state["bs_level_num"] = 1
-                                bot_state["mode"] = "normal"
+                                bot_state["mode"] = "normal" 
                             else: 
                                 bot_state["bs_level_num"] += 1
                                 
-                            # 3-Circle Logic
                             if bot_state["mode"] == "normal":
                                 if bot_state["bs_level_num"] >= 4:
                                     bot_state["mode"] = "3-circle"
@@ -273,8 +267,8 @@ def background_bot_loop():
                                     violet_res_status = f"🟣 ✅ AI WIN (L{bot_state['violet_level']})"
                                     bot_state["violet_mega_win"] = True
                                 else:
-                                    print("   👉 🟣 Violet Appeared! (Resetting gap, No active AI alert)")
-                                    violet_res_status = None 
+                                    print("   👉 🟣 Normal Violet Win! (No active AI alert)")
+                                    violet_res_status = "🟣 ✅ WIN"
                                     
                                 bot_state["violet_gap"] = 0 
                                 bot_state["violet_alert_active"] = False

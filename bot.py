@@ -11,7 +11,8 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-TELEGRAM_TOKEN = "8808901816:AAFTYigKQeeH5--jw6KDM_aAlsL9SIZCCXo" 
+TELEGRAM_TOKEN = "# --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
+TELEGRAM_TOKEN = "8886107397:AAHENOebGnrupxvGKqKh5cKC3SmujXJOV3w" 
 
 # 🔐 सिक्रेट पासवर्ड्स
 PASS_30S = "11111"  # ३० सेकंदाच्या गेमसाठी

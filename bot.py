@@ -27,10 +27,12 @@ bot_state = {
     "circle_current_target": None, 
     "circle_count": 0,
     
-    # AI Violet Strategy States
+    # AI Violet Strategy & 100 Rounds Stats
     "full_history": [],
     "hot_gap": None,
     "hot_number": None,
+    "v_count_100": 0,
+    "max_lvl_100": 1,
     
     "violet_alert_active": False,   
     "violet_alert_type": "None",      
@@ -88,7 +90,7 @@ def telegram_listener():
                             bot_state["active_until"] = time.time() + 3600
                             bot_state["notified_sleep"] = False
                             print("✅ Bot activated via Telegram!")
-                            send_telegram_message(chat_id, "✅ *Bot Activated! AI Violet + 3-Circle Big/Small Strategy Running!*")
+                            send_telegram_message(chat_id, "✅ *Bot Activated! AI Violet + 3-Circle + 100-Round Stats Running!*")
                         else:
                             send_telegram_message(chat_id, "❌ Access Denied!")
         except Exception as e:
@@ -101,7 +103,6 @@ def analyze_violet_history(full_history):
         
     gaps = []
     preceding_numbers = {}
-    
     last_violet_idx = -1
     
     for i in range(len(full_history)):
@@ -121,8 +122,58 @@ def analyze_violet_history(full_history):
             
     hot_gap = max(set(gaps), key=gaps.count) if gaps else None
     hot_number = max(preceding_numbers, key=preceding_numbers.get) if preceding_numbers else None
-    
     return hot_gap, hot_number
+
+def get_100_rounds_stats(full_history):
+    # Calculates total violets and the maximum Big/Small level reached in the last 100 rounds
+    if not full_history or len(full_history) < 2:
+        return 0, 1
+        
+    violet_count = sum(1 for x in full_history if x['number'] in [0, 5])
+    
+    # Sort history oldest first to simulate correctly
+    history_asc = sorted(full_history, key=lambda x: x['issue'])
+    
+    bs_pred = None
+    bs_level = 1
+    max_level = 1
+    mode = "normal"
+    circle_target = None
+    circle_count = 0
+    
+    for item in history_asc:
+        num = item['number']
+        actual_bs = "Big" if num >= 5 else "Small"
+        
+        if bs_pred is None:
+            bs_pred = actual_bs
+            continue
+            
+        if bs_pred == actual_bs:
+            bs_level = 1
+            mode = "normal"
+        else:
+            bs_level += 1
+            if bs_level > max_level:
+                max_level = bs_level
+                
+        # Simulate our 3-circle prediction logic
+        if mode == "normal":
+            if bs_level >= 4:
+                mode = "3-circle"
+                circle_target = actual_bs
+                circle_count = 1
+                bs_pred = circle_target
+            else:
+                bs_pred = actual_bs
+        elif mode == "3-circle":
+            circle_count += 1
+            if circle_count > 3:
+                circle_target = "Small" if circle_target == "Big" else "Big"
+                circle_count = 1
+            bs_pred = circle_target
+            
+    return violet_count, max_level
 
 def background_bot_loop():
     global bot_state
@@ -146,6 +197,11 @@ def background_bot_loop():
                 h_gap, h_num = analyze_violet_history(bot_state["full_history"])
                 bot_state["hot_gap"] = h_gap
                 bot_state["hot_number"] = h_num
+                
+                # Fetch 100 Rounds Stats
+                v_count, max_lvl = get_100_rounds_stats(bot_state["full_history"])
+                bot_state["v_count_100"] = v_count
+                bot_state["max_lvl_100"] = max_lvl
                 # ------------------------------------------------------------
 
                 latest = records[0]
@@ -188,7 +244,7 @@ def background_bot_loop():
 
                             if bs_win: 
                                 bot_state["bs_level_num"] = 1
-                                bot_state["mode"] = "normal"  # जिंकल्यावर नॉर्मल मोडमध्ये परत येईल
+                                bot_state["mode"] = "normal"
                             else: 
                                 bot_state["bs_level_num"] += 1
                                 
@@ -200,7 +256,7 @@ def background_bot_loop():
                                     bot_state["circle_count"] = 1
                                     bot_state["bs_pred"] = bot_state["circle_current_target"]
                                 else:
-                                    bot_state["bs_pred"] = actual_bs  # Trend following
+                                    bot_state["bs_pred"] = actual_bs
                             elif bot_state["mode"] == "3-circle":
                                 bot_state["circle_count"] += 1
                                 if bot_state["circle_count"] > 3:
@@ -217,8 +273,8 @@ def background_bot_loop():
                                     violet_res_status = f"🟣 ✅ AI WIN (L{bot_state['violet_level']})"
                                     bot_state["violet_mega_win"] = True
                                 else:
-                                    print("   👉 🟣 Normal Violet Win! (No active AI alert)")
-                                    violet_res_status = "🟣 ✅ WIN"
+                                    print("   👉 🟣 Violet Appeared! (Resetting gap, No active AI alert)")
+                                    violet_res_status = None 
                                     
                                 bot_state["violet_gap"] = 0 
                                 bot_state["violet_alert_active"] = False
@@ -271,6 +327,7 @@ def background_bot_loop():
                         print("-" * 55)
                         print(f"🎟️ PREDICTION FOR NEXT TICKET: {next_issue}")
                         print(f"📊 AI Status: Hot Gap = {bot_state['hot_gap']} | Hot Num = {bot_state['hot_number']}")
+                        print(f"📈 100 Rounds Stats -> Violets: {bot_state['v_count_100']} | Max B/S Level: L{bot_state['max_lvl_100']}")
                         
                         if bot_state["violet_alert_active"]:
                             print(f"🔮 Violet Prediction: 🟣 {bot_state['violet_alert_type']} - Level {bot_state['violet_level']}")
@@ -282,7 +339,8 @@ def background_bot_loop():
                         if bot_state["active_until"] > 0 and time.time() < bot_state["active_until"]:
                             text = f"🚀 *VSR WINGO Signals 1 Minute* 🚀\n\n"
                             
-                            text += f"🧠 *AI DATA:* Hot Gap [{bot_state['hot_gap']}] | Hot Num [{bot_state['hot_number']}]\n\n"
+                            text += f"🧠 *AI DATA:* Hot Gap [{bot_state['hot_gap']}] | Hot Num [{bot_state['hot_number']}]\n"
+                            text += f"📊 *LAST 100:* 🟣 Violets: {bot_state['v_count_100']} | 📈 Max B/S: L{bot_state['max_lvl_100']}\n\n"
                             
                             if bs_res_status:
                                 text += f"🔄 *Result for {issue}:*\n"
@@ -331,7 +389,7 @@ HTML_TEMPLATE = """
         .card { background: #1e293b; border-radius: 16px; padding: 25px; max-width: 450px; margin: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
         h1 { color: #38bdf8; font-size: 20px; margin-bottom: 5px; }
         .subtitle { color: #94a3b8; font-size: 12px; margin-bottom: 10px; }
-        .ai-stats { background: #020617; padding: 10px; border-radius: 8px; font-size: 13px; color: #fbbf24; margin-bottom: 15px; border: 1px solid #fbbf24; }
+        .ai-stats { background: #020617; padding: 10px; border-radius: 8px; font-size: 13px; color: #fbbf24; margin-bottom: 15px; border: 1px solid #fbbf24; line-height: 1.6;}
         .metric { background: #334155; margin: 12px 0; padding: 15px; border-radius: 10px; font-size: 16px; text-align: left; display: flex; justify-content: space-between; align-items: center; }
         .highlight { color: #4ade80; font-weight: bold; font-size: 18px; }
         .violet-active { color: #c084fc; font-weight: bold; font-size: 15px; animation: pulse 1.5s infinite; }
@@ -353,7 +411,8 @@ HTML_TEMPLATE = """
         
         <div class="ai-stats">
             🧠 <b>Live AI Analytics:</b> <br>
-            Hot Gap: <span id="hot_gap">-</span> | Hot Number: <span id="hot_num">-</span>
+            Hot Gap: <span id="hot_gap">-</span> | Hot Number: <span id="hot_num">-</span><br>
+            📊 <b>Last 100:</b> Violets: <span id="v_100">0</span> | Max B/S: L<span id="max_l_100">1</span>
         </div>
         
         <div class="metric"><span>🎟️ Next Ticket:</span> <span class="highlight" id="last_issue">Loading...</span></div>
@@ -381,6 +440,8 @@ HTML_TEMPLATE = """
                     
                     document.getElementById('hot_gap').innerText = data.hot_gap !== null ? data.hot_gap : "Calc...";
                     document.getElementById('hot_num').innerText = data.hot_number !== null ? data.hot_number : "Calc...";
+                    document.getElementById('v_100').innerText = data.v_count_100;
+                    document.getElementById('max_l_100').innerText = data.max_lvl_100;
                     
                     const vInfo = document.getElementById('violet_info');
                     if (data.violet_alert_active) {

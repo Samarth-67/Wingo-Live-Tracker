@@ -26,17 +26,25 @@ bot_state = {
     "circle_current_target": None, 
     "circle_count": 0,
     
-    # --- SUPER 8 DUAL Strategy States & 100 Rounds Data ---
-    "full_history": [],
-    "se_wins_100": 0,     # मागच्या १०० मध्ये 'सुपर 8' ने जिंकलेले
-    "se_fails_100": 0,    # मागच्या १०० मध्ये 'सुपर 8' फेल गेलेले
-    "max_lvl_100": 1,     # मागच्या १०० मध्ये B/S ची जास्तीत जास्त लेव्हल
-    
+    # --- SUPER 8 DUAL Strategy States ---
+    "se_wins_100": 0,
+    "se_fails_100": 0,
     "se_active": False,   
     "se_level": 0,              
     "se_target": "4 & 6",       
     "se_mega_win": False,
     
+    # --- NEW: SUPER 4 DUAL Strategy States ---
+    "s4_wins_100": 0,
+    "s4_fails_100": 0,
+    "s4_active": False,   
+    "s4_level": 0,              
+    "s4_target": "8 & 6",       
+    "s4_mega_win": False,
+    
+    # --- Stats ---
+    "full_history": [],
+    "max_lvl_100": 1,
     "active_until": 0,
     "notified_sleep": True
 }
@@ -88,7 +96,7 @@ def telegram_listener():
                             bot_state["active_until"] = time.time() + 3600
                             bot_state["notified_sleep"] = False
                             print("✅ Bot activated via Telegram!")
-                            send_telegram_message(chat_id, "✅ *Bot Activated! Super 8 (Dual Betting) + 3-Circle Running!*")
+                            send_telegram_message(chat_id, "✅ *Bot Activated! Master AI: Super 8 + Super 4 + 3-Circle Running!*")
                         else:
                             send_telegram_message(chat_id, "❌ Access Denied!")
         except Exception as e:
@@ -97,7 +105,7 @@ def telegram_listener():
 
 def get_100_rounds_stats(full_history):
     if not full_history or len(full_history) < 2:
-        return 0, 0, 1
+        return 0, 0, 0, 0, 1
         
     history_asc = sorted(full_history, key=lambda x: x['issue'])
     
@@ -108,10 +116,8 @@ def get_100_rounds_stats(full_history):
     circle_target = None
     circle_count = 0
     
-    se_wins = 0
-    se_fails = 0
-    se_active = False
-    se_level = 0
+    se_wins, se_fails, se_active, se_level = 0, 0, False, 0
+    s4_wins, s4_fails, s4_active, s4_level = 0, 0, False, 0
     
     for item in history_asc:
         num = item['number']
@@ -144,7 +150,7 @@ def get_100_rounds_stats(full_history):
                     circle_count = 1
                 bs_pred = circle_target
 
-        # --- Super 8 Dual Logic Simulation ---
+        # --- Super 8 Logic Simulation ---
         if se_active:
             if num in [4, 6]:
                 se_wins += 1
@@ -157,13 +163,32 @@ def get_100_rounds_stats(full_history):
                 else:
                     se_fails += 1
                     se_active = False
-                    
         if not se_active:
             if num == 8:
                 se_active = True
                 se_level = 1
+
+        # --- Super 4 Logic Simulation (With Violet Skip) ---
+        if s4_active:
+            if num in [8, 6]:
+                s4_wins += 1
+                s4_active = False
+            elif num == 4:
+                s4_level = 1
+            elif num in [0, 5]:
+                pass # Violet Skip - No level change
+            else:
+                if s4_level == 1:
+                    s4_level = 2
+                else:
+                    s4_fails += 1
+                    s4_active = False
+        if not s4_active:
+            if num == 4:
+                s4_active = True
+                s4_level = 1
                 
-    return se_wins, se_fails, max_level
+    return se_wins, se_fails, s4_wins, s4_fails, max_level
 
 def background_bot_loop():
     global bot_state
@@ -184,9 +209,11 @@ def background_bot_loop():
                 bot_state["full_history"].sort(key=lambda x: x['issue'], reverse=True)
                 bot_state["full_history"] = bot_state["full_history"][:100]
                 
-                wins_100, fails_100, max_lvl = get_100_rounds_stats(bot_state["full_history"])
-                bot_state["se_wins_100"] = wins_100
-                bot_state["se_fails_100"] = fails_100
+                se_w, se_f, s4_w, s4_f, max_lvl = get_100_rounds_stats(bot_state["full_history"])
+                bot_state["se_wins_100"] = se_w
+                bot_state["se_fails_100"] = se_f
+                bot_state["s4_wins_100"] = s4_w
+                bot_state["s4_fails_100"] = s4_f
                 bot_state["max_lvl_100"] = max_lvl
                 # --------------------------------------------------------------------
 
@@ -203,8 +230,7 @@ def background_bot_loop():
                         bot_state["bs_pred"] = actual_bs
                         bot_state["status"] = "PREDICTING"
                         bot_state["jackpot"] = False
-                        
-                        print(f"✅ Initialized at Ticket: {issue} | Fetched 100 Rounds Data | Super 8 Dual Ready")
+                        print(f"✅ Initialized at Ticket: {issue} | Multi-Tracker Ready")
 
                     elif last_processed != issue:
                         print("\n" + "=" * 55)
@@ -213,9 +239,10 @@ def background_bot_loop():
 
                         bs_res_status = None
                         se_res_status = ""  
+                        s4_res_status = ""
 
                         if bot_state["status"] == "PREDICTING":
-                            # --- 1. Big/Small Logic (Trend + 3-Circle) ---
+                            # --- 1. Big/Small Logic ---
                             bs_win = (bot_state["bs_pred"] == actual_bs)
                             bot_state["jackpot"] = bs_win 
                             bs_res_status = f"{bot_state['bs_pred']} {'✅ WIN' if bs_win else '❌ FAIL'}"
@@ -241,9 +268,8 @@ def background_bot_loop():
                                     bot_state["circle_count"] = 1
                                 bot_state["bs_pred"] = bot_state["circle_current_target"]
 
-                            # --- 2. SUPER 8 DUAL Evaluation ---
+                            # --- 2. SUPER 8 Evaluation ---
                             bot_state["se_mega_win"] = False
-                            
                             if bot_state["se_active"]:
                                 if number in [4, 6]:
                                     print(f"   👉 🎱🔥 SUPER 8 DUAL WIN! (Won at L{bot_state['se_level']} with {number}) 🔥🎱")
@@ -266,67 +292,88 @@ def background_bot_loop():
                                         bot_state["se_active"] = False
                                         bot_state["se_level"] = 0
 
-                            # --- 3. Super 8 Trigger Checker for Next Round ---
+                            # --- 3. SUPER 4 Evaluation (With Violet Skip) ---
+                            bot_state["s4_mega_win"] = False
+                            if bot_state["s4_active"]:
+                                if number in [8, 6]:
+                                    print(f"   👉 🍀🔥 SUPER 4 DUAL WIN! (Won at L{bot_state['s4_level']} with {number}) 🔥🍀")
+                                    s4_res_status = f"🍀 ✅ WIN (L{bot_state['s4_level']} - Num {number})"
+                                    bot_state["s4_mega_win"] = True
+                                    bot_state["s4_active"] = False
+                                    bot_state["s4_level"] = 0
+                                elif number == 4:
+                                    print(f"   👉 🍀 Got '4' again! Restarting Super 4 Level 1.")
+                                    s4_res_status = f"🍀 ❌ FAIL (Got 4, Restarting L1)"
+                                    bot_state["s4_level"] = 1
+                                elif number in [0, 5]:
+                                    # VIOLET SKIP LOGIC
+                                    print(f"   👉 🍀 Violet ({number}) appeared! Skipping this level.")
+                                    s4_res_status = f"🍀 ⏸️ SKIPPED (Violet Came, Holding L{bot_state['s4_level']})"
+                                    # Level count is NOT increased, keeping it active
+                                else:
+                                    if bot_state["s4_level"] == 1:
+                                        print(f"   👉 ❌ Super 4 L1 Fail. Moving to L2.")
+                                        s4_res_status = f"🍀 ❌ FAIL (L1 Targets 8 & 6)"
+                                        bot_state["s4_level"] = 2
+                                    else:
+                                        print(f"   👉 ⚠️ 🛑 SUPER 4 STOP LOSS HIT!")
+                                        s4_res_status = f"🍀 ❌ FAIL L2 [🛑 STOP]"
+                                        bot_state["s4_active"] = False
+                                        bot_state["s4_level"] = 0
+
+                            # --- 4. Trigger Checker for Next Round ---
                             if not bot_state["se_active"]:
                                 if number == 8:
                                     bot_state["se_active"] = True
                                     bot_state["se_level"] = 1
-                                    print(f"   🚨 SUPER 8 TRIGGER: '8' Appeared! Alert L1 (Nums 4 & 6) Started.")
+                            if not bot_state["s4_active"]:
+                                if number == 4:
+                                    bot_state["s4_active"] = True
+                                    bot_state["s4_level"] = 1
 
+                            # Format Status
                             bot_state["last_result"] = f"B/S: {bs_res_status}"
-                            if se_res_status != "":
-                                bot_state["last_result"] += f" | Super 8: {se_res_status}"
+                            if se_res_status != "": bot_state["last_result"] += f" | S8: {se_res_status}"
+                            if s4_res_status != "": bot_state["last_result"] += f" | S4: {s4_res_status}"
 
                         next_issue = str(int(issue) + 1) if issue.isdigit() else "Next"
-                        
                         bot_state["last_issue"] = next_issue
                         bot_state["latest_number"] = number
                         bot_state["bs_level"] = f"L{bot_state['bs_level_num']}"
-                        
                         last_processed = issue
-
-                        # ---------------- 4. PREDICTION CONSOLE OUTPUT ----------------
-                        print("-" * 55)
-                        print(f"🎟️ PREDICTION FOR NEXT TICKET: {next_issue}")
-                        print(f"📈 100 Rounds Stats -> Super 8 Dual: {bot_state['se_wins_100']} Wins, {bot_state['se_fails_100']} Fails | Max B/S Lvl: L{bot_state['max_lvl_100']}")
-                        
-                        if bot_state["se_active"]:
-                            print(f"🔮 Super 8 Prediction: 🎱 Numbers {bot_state['se_target']} - Level {bot_state['se_level']}")
-                        else:
-                            print(f"🔮 Super 8 Prediction: Waiting for '8'")
-                        print("=" * 55)
 
                         # Send Telegram Signal if active
                         if bot_state["active_until"] > 0 and time.time() < bot_state["active_until"]:
                             text = f"🚀 *VSR WINGO Signals 1 Minute* 🚀\n\n"
-                            
-                            text += f"📊 *LAST 100:* 🎱 Super 8 Wins: {bot_state['se_wins_100']} | 📈 Max B/S: L{bot_state['max_lvl_100']}\n\n"
+                            text += f"📊 *LAST 100:* 🎱 S8 Wins: {bot_state['se_wins_100']} | 🍀 S4 Wins: {bot_state['s4_wins_100']}\n"
+                            text += f"📈 Max B/S Trend: L{bot_state['max_lvl_100']}\n\n"
                             
                             if bs_res_status:
                                 text += f"🔄 *Result for {issue}:*\n"
                                 text += f"📏 B/S: {bs_res_status}\n"
-                                
-                                if se_res_status != "":
-                                    text += f"🎱 Super 8: {se_res_status}\n"
+                                if se_res_status != "": text += f"🎱 Super 8: {se_res_status}\n"
+                                if s4_res_status != "": text += f"🍀 Super 4: {s4_res_status}\n"
                                     
-                                if bot_state["se_mega_win"]:
-                                    text += f"\n🎱🔥 *SUPER 8 NUMBER WIN!* 🔥🎱\n"
+                                if bot_state["se_mega_win"] or bot_state["s4_mega_win"]:
+                                    text += f"\n🎯🔥 *NUMBER PREDICTION WIN!* 🔥🎯\n"
                                 elif bot_state["jackpot"]:
                                     text += f"\n🔥🎉 *JACKPOT! WIN!* 🎉🔥\n"
                                     
                                 text += f"\n➖➖➖➖➖➖➖➖\n\n"
                             
                             text += f"🎟️ *Prediction For Ticket:* {next_issue}\n\n"
-                            
                             mode_text = " *(🔄 3-Circle)*" if bot_state.get("mode") == "3-circle" else ""
                             text += f"📏 *B/S Pred:* {bot_state['bs_pred']} (L{bot_state['bs_level_num']}){mode_text}\n\n"
                             
                             if bot_state["se_active"]:
-                                text += f"⚠️ 🎱 *SUPER 8 DUAL ALERT!*\n"
-                                text += f"🎯 *Target Numbers:* {bot_state['se_target']}\n"
-                                text += f"📈 *Level:* L{bot_state['se_level']} (Max L2)\n"
-                            else:
-                                text += f"⏸️ *Super 8 Status:* Waiting for number 8\n"
+                                text += f"⚠️ 🎱 *SUPER 8 ALERT!*\n"
+                                text += f"🎯 *Targets:* {bot_state['se_target']} (L{bot_state['se_level']})\n\n"
+                            if bot_state["s4_active"]:
+                                text += f"⚠️ 🍀 *SUPER 4 ALERT!*\n"
+                                text += f"🎯 *Targets:* {bot_state['s4_target']} (L{bot_state['s4_level']})\n\n"
+                            
+                            if not bot_state["se_active"] and not bot_state["s4_active"]:
+                                text += f"⏸️ *Number Pred:* Waiting for 8 or 4\n"
 
                             send_telegram_message(TARGET_CHANNEL_ID, text)
                         elif bot_state["active_until"] > 0 and time.time() >= bot_state["active_until"]:
@@ -344,7 +391,7 @@ HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>VSR Wingo Live Super 8 Dashboard</title>
+    <title>VSR Wingo Multi-Tracker Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; padding: 20px; }
@@ -352,13 +399,12 @@ HTML_TEMPLATE = """
         h1 { color: #38bdf8; font-size: 20px; margin-bottom: 5px; }
         .subtitle { color: #94a3b8; font-size: 12px; margin-bottom: 10px; }
         .ai-stats { background: #020617; padding: 10px; border-radius: 8px; font-size: 13px; color: #fbbf24; margin-bottom: 15px; border: 1px solid #fbbf24; line-height: 1.6;}
-        .metric { background: #334155; margin: 12px 0; padding: 15px; border-radius: 10px; font-size: 16px; text-align: left; display: flex; justify-content: space-between; align-items: center; }
-        .highlight { color: #4ade80; font-weight: bold; font-size: 18px; }
-        .violet-active { color: #facc15; font-weight: bold; font-size: 15px; animation: pulse 1.5s infinite; }
-        .violet-waiting { color: #94a3b8; font-size: 15px; }
+        .metric { background: #334155; margin: 10px 0; padding: 12px; border-radius: 10px; font-size: 15px; text-align: left; display: flex; justify-content: space-between; align-items: center; }
+        .highlight { color: #4ade80; font-weight: bold; font-size: 16px; }
+        .alert-active { color: #facc15; font-weight: bold; font-size: 14px; animation: pulse 1.5s infinite; }
+        .alert-waiting { color: #94a3b8; font-size: 14px; }
         .result-box { background: #0f172a; margin-top: 15px; padding: 12px; border-radius: 8px; font-size: 13px; color: #cbd5e1; text-align: left; border-left: 4px solid #38bdf8; }
         .jackpot { background: #eab308; color: #000; font-weight: bold; padding: 12px; border-radius: 8px; margin-top: 15px; font-size: 15px; display: none; animation: pulse 1.5s infinite; }
-        .mega-win { background: #eab308; color: #000; font-weight: bold; padding: 12px; border-radius: 8px; margin-top: 15px; font-size: 15px; display: none; animation: pulse 1s infinite; }
         .status-badge { background: #ef4444; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
         .status-active { background: #22c55e; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
@@ -366,26 +412,26 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="card">
-        <h1>🚀 VSR WINGO Super 8 Dashboard</h1>
+        <h1>🚀 VSR WINGO Multi-Tracker</h1>
         <div class="subtitle">
             Signals Status: <span id="timer_status" class="status-badge">INACTIVE</span>
         </div>
         
         <div class="ai-stats">
-            🎯 <b>Super 8 Analytics (Last 100):</b> <br>
-            Wins: <span id="se_wins">0</span> | Fails: <span id="se_fails">0</span><br>
+            🎯 <b>Analytics (Last 100):</b> <br>
+            🎱 S8 Wins: <span id="se_wins">0</span> | 🍀 S4 Wins: <span id="s4_wins">0</span><br>
             📈 <b>Max B/S Trend:</b> L<span id="max_l_100">1</span>
         </div>
         
         <div class="metric"><span>🎟️ Next Ticket:</span> <span class="highlight" id="last_issue">Loading...</span></div>
         <div class="metric"><span>📏 B/S Pred:</span> <span class="highlight" id="bs_info">-</span></div>
-        <div class="metric"><span>🎱 Super 8 Pred:</span> <span id="se_info">Analyzing...</span></div>
+        <div class="metric"><span>🎱 Super 8:</span> <span id="se_info">Analyzing...</span></div>
+        <div class="metric"><span>🍀 Super 4:</span> <span id="s4_info">Analyzing...</span></div>
         
         <div class="result-box" id="last_result">
             <b>📊 Last Trade Status:</b><br>Initializing...
         </div>
 
-        <div class="mega-win" id="mega_win_box">🎱🔥 SUPER 8 NUMBER WIN! 🔥🎱</div>
         <div class="jackpot" id="jackpot_box">🔥🎉 JACKPOT! WIN! 🎉🔥</div>
     </div>
 
@@ -401,25 +447,36 @@ HTML_TEMPLATE = """
                     document.getElementById('bs_info').innerText = bsText;
                     
                     document.getElementById('se_wins').innerText = data.se_wins_100;
-                    document.getElementById('se_fails').innerText = data.se_fails_100;
+                    document.getElementById('s4_wins').innerText = data.s4_wins_100;
                     document.getElementById('max_l_100').innerText = data.max_lvl_100;
                     
                     const seInfo = document.getElementById('se_info');
                     if (data.se_active) {
                         seInfo.innerText = "⚠️ Nums " + data.se_target + " (L" + data.se_level + ")";
-                        seInfo.className = "violet-active";
+                        seInfo.className = "alert-active";
                     } else {
-                        seInfo.innerText = "⏸️ WAITING (No 8 yet)";
-                        seInfo.className = "violet-waiting";
+                        seInfo.innerText = "⏸️ WAITING (No 8)";
+                        seInfo.className = "alert-waiting";
+                    }
+
+                    const s4Info = document.getElementById('s4_info');
+                    if (data.s4_active) {
+                        s4Info.innerText = "⚠️ Nums " + data.s4_target + " (L" + data.s4_level + ")";
+                        s4Info.className = "alert-active";
+                    } else {
+                        s4Info.innerText = "⏸️ WAITING (No 4)";
+                        s4Info.className = "alert-waiting";
                     }
                     
                     document.getElementById('last_result').innerHTML = "<b>📊 Last Trade Status:</b><br>" + data.last_result;
                     
-                    const mw = document.getElementById('mega_win_box');
-                    if (data.se_mega_win) { mw.style.display = 'block'; } else { mw.style.display = 'none'; }
-                    
                     const jp = document.getElementById('jackpot_box');
-                    if (data.jackpot && !data.se_mega_win) { jp.style.display = 'block'; } else { jp.style.display = 'none'; }
+                    if (data.jackpot || data.se_mega_win || data.s4_mega_win) { 
+                        jp.innerText = data.se_mega_win || data.s4_mega_win ? "🎯🔥 NUMBER PREDICTION WIN! 🔥🎯" : "🔥🎉 JACKPOT! WIN! 🎉🔥";
+                        jp.style.display = 'block'; 
+                    } else { 
+                        jp.style.display = 'none'; 
+                    }
 
                     const statusBadge = document.getElementById('timer_status');
                     if (data.active_until > (Date.now() / 1000)) {

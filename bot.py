@@ -76,7 +76,7 @@ def telegram_listener():
                             bot_state["active_until"] = time.time() + 3600
                             bot_state["notified_sleep"] = False
                             print("✅ Bot activated via Telegram!")
-                            send_telegram_message(chat_id, "✅ *Bot Activated! Sniper Violet Strategy (Gap 4/6/9 & Mega 14) Running with Stop-Loss!*")
+                            send_telegram_message(chat_id, "✅ *Bot Activated! 3-Stage Sniper Violet Strategy Running!*")
                         else:
                             send_telegram_message(chat_id, "❌ Access Denied!")
         except Exception as e:
@@ -84,19 +84,27 @@ def telegram_listener():
         time.sleep(3)
 
 def get_violet_prediction_state(gap):
-    # This helper function decides the prediction based on the current gap
+    # --- Batch 1: Gap 4, 5, 6 (L1, L2, L3) ---
     if gap == 4:
-        return True, "Gap 4 Alert", 1
+        return True, "Gap 4-6 Alert", 1
+    elif gap == 5:
+        return True, "Gap 4-6 Alert", 2
     elif gap == 6:
-        return True, "Gap 6-7 Alert", 1
-    elif gap == 7:
-        return True, "Gap 6-7 Alert", 2
+        return True, "Gap 4-6 Alert", 3
+        
+    # --- Batch 2: Gap 9, 10, 11 (L1, L2, L3) ---
     elif gap == 9:
-        return True, "Gap 9-10 Alert", 1
+        return True, "Gap 9-11 Alert", 1
     elif gap == 10:
-        return True, "Gap 9-10 Alert", 2
+        return True, "Gap 9-11 Alert", 2
+    elif gap == 11:
+        return True, "Gap 9-11 Alert", 3
+        
+    # --- MEGA Alert: Gap 14 to 18 (L1 to L5) ---
     elif gap >= 14 and gap <= 18:
         return True, "MEGA Alert", (gap - 13) # L1 to L5
+        
+    # --- Waiting for next trigger ---
     else:
         return False, "None", 0
 
@@ -186,10 +194,13 @@ def background_bot_loop():
                                     print(f"   👉 ❌ {bot_state['violet_alert_type']} Level {bot_state['violet_level']} Fail")
                                     violet_res_status = f"🟣 ❌ FAIL ({bot_state['violet_alert_type']} L{bot_state['violet_level']})"
                                     
-                                    # Stop loss trigger print
-                                    if "MEGA" in bot_state["violet_alert_type"] and bot_state["violet_level"] == 5:
+                                    # Stop loss trigger print for L3 in normal alerts and L5 in MEGA
+                                    if "Gap" in bot_state["violet_alert_type"] and bot_state["violet_level"] == 3:
+                                        print("   ⚠️ 🛑 STOP LOSS HIT! Waiting for next Gap Phase.")
+                                        violet_res_status += " [🛑 L3 STOP]"
+                                    elif "MEGA" in bot_state["violet_alert_type"] and bot_state["violet_level"] == 5:
                                         print("   ⚠️ 🛑 STOP LOSS HIT FOR MEGA ALERT! Stopping Violet prediction to save funds.")
-                                        violet_res_status += " [🛑 STOP LOSS]"
+                                        violet_res_status += " [🛑 L5 STOP LOSS]"
                                 else:
                                     print(f"   👉 No Violet. Gap is now: {bot_state['violet_gap']}")
 

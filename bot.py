@@ -34,7 +34,7 @@ bot_state = {
     "se_target": "4 & 6",       
     "se_mega_win": False,
     
-    # --- NEW: SUPER 4 DUAL Strategy States ---
+    # --- SUPER 4 DUAL Strategy States ---
     "s4_wins_100": 0,
     "s4_fails_100": 0,
     "s4_active": False,   
@@ -96,7 +96,7 @@ def telegram_listener():
                             bot_state["active_until"] = time.time() + 3600
                             bot_state["notified_sleep"] = False
                             print("✅ Bot activated via Telegram!")
-                            send_telegram_message(chat_id, "✅ *Bot Activated! Master AI: Super 8 + Super 4 + 3-Circle Running!*")
+                            send_telegram_message(chat_id, "✅ *Bot Activated! Master AI: Super 8 + Super 4 + 3-Circle (Strict L8 Stop Loss) Running!*")
                         else:
                             send_telegram_message(chat_id, "❌ Access Denied!")
         except Exception as e:
@@ -123,7 +123,7 @@ def get_100_rounds_stats(full_history):
         num = item['number']
         actual_bs = "Big" if num >= 5 else "Small"
         
-        # --- B/S Logic Simulation ---
+        # --- B/S Logic Simulation (With L8 Stop Loss) ---
         if bs_pred is None:
             bs_pred = actual_bs
         else:
@@ -131,30 +131,37 @@ def get_100_rounds_stats(full_history):
                 bs_level = 1
                 mode = "normal"
             else:
-                bs_level += 1
-                if bs_level > max_level:
-                    max_level = bs_level
-                    
-            if mode == "normal":
-                if bs_level >= 4:
-                    mode = "3-circle"
-                    circle_target = actual_bs
-                    circle_count = 1
-                    bs_pred = circle_target
-                else:
+                if bs_level == 8: # STOP LOSS HIT
+                    bs_level = 1
+                    mode = "normal"
                     bs_pred = actual_bs
-            elif mode == "3-circle":
-                circle_count += 1
-                if circle_count > 3:
-                    circle_target = "Small" if circle_target == "Big" else "Big"
-                    circle_count = 1
-                bs_pred = circle_target
+                else:
+                    bs_level += 1
+                    if bs_level > max_level:
+                        max_level = bs_level
+                        
+                    if mode == "normal" and bs_level >= 4:
+                        mode = "3-circle"
+                        circle_target = actual_bs # Opposite of fail = actual
+                        circle_count = 1
+                        bs_pred = circle_target
+                    elif mode == "3-circle":
+                        circle_count += 1
+                        if circle_count > 3:
+                            circle_target = "Small" if circle_target == "Big" else "Big"
+                            circle_count = 1
+                        bs_pred = circle_target
+                    else:
+                        bs_pred = actual_bs
 
-        # --- Super 8 Logic Simulation ---
+        # --- Super 8 & 4 Logic Simulation (With Prevention of Chain Reaction) ---
+        just_resolved = False
+        
         if se_active:
             if num in [4, 6]:
                 se_wins += 1
                 se_active = False
+                just_resolved = True # Prevent S4 from opening immediately
             elif num == 8:
                 se_level = 1
             else:
@@ -163,28 +170,28 @@ def get_100_rounds_stats(full_history):
                 else:
                     se_fails += 1
                     se_active = False
-        if not se_active:
-            if num == 8:
-                se_active = True
-                se_level = 1
-
-        # --- Super 4 Logic Simulation (With Violet Skip) ---
+                    
         if s4_active:
             if num in [8, 6]:
                 s4_wins += 1
                 s4_active = False
+                just_resolved = True # Prevent S8 from opening immediately
             elif num == 4:
                 s4_level = 1
             elif num in [0, 5]:
-                pass # Violet Skip - No level change
+                pass # Violet Skip
             else:
                 if s4_level == 1:
                     s4_level = 2
                 else:
                     s4_fails += 1
                     s4_active = False
-        if not s4_active:
-            if num == 4:
+                    
+        if not just_resolved:
+            if not se_active and num == 8:
+                se_active = True
+                se_level = 1
+            if not s4_active and num == 4:
                 s4_active = True
                 s4_level = 1
                 
@@ -242,31 +249,44 @@ def background_bot_loop():
                         s4_res_status = ""
 
                         if bot_state["status"] == "PREDICTING":
-                            # --- 1. Big/Small Logic ---
+                            # --- 1. Big/Small Logic (Trend + 3-Circle + Strict L8 Stop Loss) ---
                             bs_win = (bot_state["bs_pred"] == actual_bs)
                             bot_state["jackpot"] = bs_win 
                             bs_res_status = f"{bot_state['bs_pred']} {'✅ WIN' if bs_win else '❌ FAIL'}"
 
                             if bs_win: 
                                 bot_state["bs_level_num"] = 1
-                                bot_state["mode"] = "normal" 
+                                bot_state["mode"] = "normal"
+                                bot_state["circle_count"] = 0
                             else: 
-                                bot_state["bs_level_num"] += 1
-                                
-                            if bot_state["mode"] == "normal":
-                                if bot_state["bs_level_num"] >= 4:
-                                    bot_state["mode"] = "3-circle"
-                                    bot_state["circle_current_target"] = actual_bs
-                                    bot_state["circle_count"] = 1
-                                    bot_state["bs_pred"] = bot_state["circle_current_target"]
+                                # STRICT L8 STOP LOSS
+                                if bot_state["bs_level_num"] >= 8:
+                                    print("   ⚠️ 🛑 B/S STRICT STOP LOSS HIT AT L8!")
+                                    bs_res_status += " [🛑 L8 STOP LOSS]"
+                                    bot_state["bs_level_num"] = 1
+                                    bot_state["mode"] = "normal"
+                                    bot_state["circle_count"] = 0
+                                    bot_state["bs_pred"] = actual_bs # Reset to fresh trend
                                 else:
-                                    bot_state["bs_pred"] = actual_bs
-                            elif bot_state["mode"] == "3-circle":
-                                bot_state["circle_count"] += 1
-                                if bot_state["circle_count"] > 3:
-                                    bot_state["circle_current_target"] = "Small" if bot_state["circle_current_target"] == "Big" else "Big"
-                                    bot_state["circle_count"] = 1
-                                bot_state["bs_pred"] = bot_state["circle_current_target"]
+                                    bot_state["bs_level_num"] += 1
+                                    
+                                    if bot_state["mode"] == "normal":
+                                        if bot_state["bs_level_num"] >= 4:
+                                            bot_state["mode"] = "3-circle"
+                                            bot_state["circle_current_target"] = actual_bs # Opposite of fail is Actual
+                                            bot_state["circle_count"] = 1
+                                            bot_state["bs_pred"] = bot_state["circle_current_target"]
+                                        else:
+                                            bot_state["bs_pred"] = actual_bs
+                                    elif bot_state["mode"] == "3-circle":
+                                        bot_state["circle_count"] += 1
+                                        if bot_state["circle_count"] > 3:
+                                            bot_state["circle_current_target"] = "Small" if bot_state["circle_current_target"] == "Big" else "Big"
+                                            bot_state["circle_count"] = 1
+                                        bot_state["bs_pred"] = bot_state["circle_current_target"]
+
+                            # Flag to prevent S8 and S4 from chain-reacting
+                            just_resolved = False
 
                             # --- 2. SUPER 8 Evaluation ---
                             bot_state["se_mega_win"] = False
@@ -277,6 +297,7 @@ def background_bot_loop():
                                     bot_state["se_mega_win"] = True
                                     bot_state["se_active"] = False
                                     bot_state["se_level"] = 0
+                                    just_resolved = True # PREVENT S4 CHAIN
                                 elif number == 8:
                                     print(f"   👉 🎱 Got '8' again! Restarting Super 8 Level 1.")
                                     se_res_status = f"🎱 ❌ FAIL (Got 8, Restarting L1)"
@@ -301,15 +322,14 @@ def background_bot_loop():
                                     bot_state["s4_mega_win"] = True
                                     bot_state["s4_active"] = False
                                     bot_state["s4_level"] = 0
+                                    just_resolved = True # PREVENT S8 CHAIN
                                 elif number == 4:
                                     print(f"   👉 🍀 Got '4' again! Restarting Super 4 Level 1.")
                                     s4_res_status = f"🍀 ❌ FAIL (Got 4, Restarting L1)"
                                     bot_state["s4_level"] = 1
                                 elif number in [0, 5]:
-                                    # VIOLET SKIP LOGIC
                                     print(f"   👉 🍀 Violet ({number}) appeared! Skipping this level.")
                                     s4_res_status = f"🍀 ⏸️ SKIPPED (Violet Came, Holding L{bot_state['s4_level']})"
-                                    # Level count is NOT increased, keeping it active
                                 else:
                                     if bot_state["s4_level"] == 1:
                                         print(f"   👉 ❌ Super 4 L1 Fail. Moving to L2.")
@@ -321,15 +341,16 @@ def background_bot_loop():
                                         bot_state["s4_active"] = False
                                         bot_state["s4_level"] = 0
 
-                            # --- 4. Trigger Checker for Next Round ---
-                            if not bot_state["se_active"]:
-                                if number == 8:
-                                    bot_state["se_active"] = True
-                                    bot_state["se_level"] = 1
-                            if not bot_state["s4_active"]:
-                                if number == 4:
-                                    bot_state["s4_active"] = True
-                                    bot_state["s4_level"] = 1
+                            # --- 4. Trigger Checker for Next Round (Only if not just resolved) ---
+                            if not just_resolved:
+                                if not bot_state["se_active"]:
+                                    if number == 8:
+                                        bot_state["se_active"] = True
+                                        bot_state["se_level"] = 1
+                                if not bot_state["s4_active"]:
+                                    if number == 4:
+                                        bot_state["s4_active"] = True
+                                        bot_state["s4_level"] = 1
 
                             # Format Status
                             bot_state["last_result"] = f"B/S: {bs_res_status}"

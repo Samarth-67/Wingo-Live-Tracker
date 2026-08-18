@@ -25,17 +25,14 @@ def create_state(name, interval):
         "last_processed_issue": None,
         "bs_pred": None, "bs_level": 1, "bs_active": True, "bs_fails_in_row": 0,
         
-        # --- 3-CIRCLE STRATEGY VARIABLES ---
+        # --- LOCKED STRATEGY VARIABLES ---
         "mode": "normal",
-        "circle_current_target": None, 
-        "circle_count": 0,
         # ---------------------------------------
         
         "history": [],
         "stats": {"bs_win": 0, "bs_fail": 0, "bs_skip": 0, "total_trades": 0},
-        "active_until": 0,       
+        "is_running": False,       
         "active_chat_id": None,   
-        "notified_sleep": True,
         "live_records": []
     }
 
@@ -63,20 +60,33 @@ def telegram_listener():
                     chat_id = message.get("chat", {}).get("id")
                     text = message.get("text", "").strip()
 
+                    # --- START COMMANDS ---
                     if text.startswith("/signal"):
                         parts = text.split()
                         if len(parts) == 2:
                             pwd = parts[1]
                             if pwd == PASS_30S:
-                                state_30s["active_until"] = time.time() + 3600
+                                state_30s["is_running"] = True
                                 state_30s["active_chat_id"] = chat_id
-                                state_30s["notified_sleep"] = False
-                                send_telegram_message_direct(chat_id, "✅ *[30S Strategy] Activated for 1 Hour!*")
+                                send_telegram_message_direct(chat_id, "✅ *[30S Strategy] Activated! (Will run continuously)*")
                             elif pwd == PASS_1M:
-                                state_1m["active_until"] = time.time() + 3600
+                                state_1m["is_running"] = True
                                 state_1m["active_chat_id"] = chat_id
-                                state_1m["notified_sleep"] = False
-                                send_telegram_message_direct(chat_id, "✅ *[1M Strategy] Activated for 1 Hour!*")
+                                send_telegram_message_direct(chat_id, "✅ *[1M Strategy] Activated! (Will run continuously)*")
+                            else:
+                                send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
+                                
+                    # --- STOP COMMANDS ---
+                    elif text.startswith("/stop"):
+                        parts = text.split()
+                        if len(parts) == 2:
+                            pwd = parts[1]
+                            if pwd == PASS_30S:
+                                state_30s["is_running"] = False
+                                send_telegram_message_direct(chat_id, "🛑 *[30S Strategy] Stopped Successfully!*")
+                            elif pwd == PASS_1M:
+                                state_1m["is_running"] = False
+                                send_telegram_message_direct(chat_id, "🛑 *[1M Strategy] Stopped Successfully!*")
                             else:
                                 send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
         except Exception:
@@ -103,7 +113,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     if state["bs_active"]:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
         text += f"📏 *Prediction:* *{bs_pred_text}*\n"
-        mode_text = "(🔄 3-Circle Mode)" if state["mode"] == "3-circle" else ""
+        mode_text = "(🔒 Locked Mode)" if state["mode"] == "locked" else ""
         text += f"🎯 *Level:* L{bs_level} {mode_text}\n\n"
     else:
         text += f"📏 *Prediction:* ⏸️ *WAIT FOR PATTERN*\n"
@@ -155,7 +165,7 @@ def process_strategy(state, records):
         state["last_processed_issue"] = latest_issue
         state["bs_pred"] = latest_bs
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
-        if state["active_until"] > 0 and time.time() < state["active_until"]:
+        if state["is_running"]:
             send_telegram_signal(state, next_issue, state["bs_pred"], state["bs_level"])
         return True
 
@@ -195,39 +205,26 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> 3-CIRCLE MODE) 🚀
+        # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> LOCKED MODE) 🚀
         # =======================================================
         if state["mode"] == "normal":
             # जर लेव्हल ४ सुरु झाली असेल (म्हणजे लेव्हल ३ फेल झाली आहे)
             if state["bs_level"] >= 4: 
-                state["mode"] = "3-circle"
-                # जो निकाल आत्ताच आलाय (ज्यामुळे आपली L3 फेल झाली), तोच 'टार्गेट' म्हणून निवडेल
-                state["circle_current_target"] = latest_bs
-                state["circle_count"] = 1
-                state["bs_pred"] = state["circle_current_target"]
+                state["mode"] = "locked"
+                # state["bs_pred"] अजिबात बदलणार नाही! जो आधी फेल गेलाय तोच पुढे कायम राहील.
             else:
-                # नॉर्मल ट्रेंड फॉलो करणे
+                # नॉर्मल ट्रेंड फॉलो करणे (L1 ते L3 पर्यंत)
                 state["bs_pred"] = latest_bs
                 
-        elif state["mode"] == "3-circle":
-            state["circle_count"] += 1
-            # जर एकाच रंगाचे ३ कॉल्स पूर्ण झाले असतील, तर दुसऱ्या रंगाकडे वळणे
-            if state["circle_count"] > 3:
-                state["circle_current_target"] = "Small" if state["circle_current_target"] == "Big" else "Big"
-                state["circle_count"] = 1
-            
-            state["bs_pred"] = state["circle_current_target"]
+        elif state["mode"] == "locked":
+            # Locked Mode मध्ये Prediction बदलत नाही. जोपर्यंत जिंकत नाही तोपर्यंत तेच राहते.
+            pass
         # =======================================================
 
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
         
-        if state["active_until"] > 0 and time.time() < state["active_until"]:
+        if state["is_running"]:
             send_telegram_signal(state, next_issue, state["bs_pred"], state["bs_level"], bs_res_status)
-        elif state["active_until"] > 0 and time.time() >= state["active_until"]:
-            if not state["notified_sleep"]:
-                send_telegram_message_direct(state["active_chat_id"], f"💤 *1 Hour Session Completed ({state['name']})! Sleeping now.*")
-                state["notified_sleep"] = True
-                state["active_until"] = 0
 
         state["last_processed_issue"] = latest_issue
         return True
@@ -257,10 +254,10 @@ def render_game_panel(state):
     
     ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})" if state["bs_active"] else f"[yellow]WAIT[/] (Pending L{state['bs_level']})"
     
-    if state["mode"] == "3-circle":
-        ui_text += " [bold magenta]🔄 3-Circle[/]"
+    if state["mode"] == "locked":
+        ui_text += " [bold magenta]🔒 Locked[/]"
         
-    timer_status = "[green]ACTIVE[/]" if (state["active_until"] > 0 and time.time() < state["active_until"]) else "[red]SLEEPING[/]"
+    timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n📏 [bold]Pred:[/] {ui_text}\n🕒 [bold]Status:[/] {timer_status}\n\n"
     panel_text += f"📊 [bold]W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/] | [bold]S:[/] [yellow]{state['stats']['bs_skip']}[/]\n"

@@ -21,10 +21,8 @@ bot_state = {
     "last_result": "Bot is initializing...",
     "jackpot": False,
     
-    # --- 3-Circle Strategy Variables ---
+    # --- B/S Strategy Variables ---
     "mode": "normal",
-    "circle_current_target": None, 
-    "circle_count": 0,
     
     # --- SUPER 8 DUAL Strategy States ---
     "se_wins_100": 0,
@@ -96,7 +94,7 @@ def telegram_listener():
                             bot_state["active_until"] = time.time() + 3600
                             bot_state["notified_sleep"] = False
                             print("✅ Bot activated via Telegram!")
-                            send_telegram_message(chat_id, "✅ *Bot Activated! Master AI: Super 8 + Super 4 + 3-Circle (Strict L8 Stop Loss) Running!*")
+                            send_telegram_message(chat_id, "✅ *Bot Activated! Master AI: S8 + S4 + Trend/ZigZag (Strict L8 Stop Loss) Running!*")
                         else:
                             send_telegram_message(chat_id, "❌ Access Denied!")
         except Exception as e:
@@ -113,8 +111,6 @@ def get_100_rounds_stats(full_history):
     bs_level = 1
     max_level = 1
     mode = "normal"
-    circle_target = None
-    circle_count = 0
     
     se_wins, se_fails, se_active, se_level = 0, 0, False, 0
     s4_wins, s4_fails, s4_active, s4_level = 0, 0, False, 0
@@ -123,13 +119,14 @@ def get_100_rounds_stats(full_history):
         num = item['number']
         actual_bs = "Big" if num >= 5 else "Small"
         
-        # --- B/S Logic Simulation (With L8 Stop Loss) ---
+        # --- B/S Logic Simulation (With Zigzag & L8 Stop Loss) ---
         if bs_pred is None:
             bs_pred = actual_bs
         else:
             if bs_pred == actual_bs:
                 bs_level = 1
                 mode = "normal"
+                bs_pred = actual_bs
             else:
                 if bs_level == 8: # STOP LOSS HIT
                     bs_level = 1
@@ -140,28 +137,24 @@ def get_100_rounds_stats(full_history):
                     if bs_level > max_level:
                         max_level = bs_level
                         
-                    if mode == "normal" and bs_level >= 4:
-                        mode = "3-circle"
-                        circle_target = actual_bs # Opposite of fail = actual
-                        circle_count = 1
-                        bs_pred = circle_target
-                    elif mode == "3-circle":
-                        circle_count += 1
-                        if circle_count > 3:
-                            circle_target = "Small" if circle_target == "Big" else "Big"
-                            circle_count = 1
-                        bs_pred = circle_target
-                    else:
+                    if bs_level <= 3:
+                        mode = "normal"
                         bs_pred = actual_bs
+                    elif bs_level == 4:
+                        mode = "3-circle"
+                        bs_pred = actual_bs
+                    elif bs_level >= 5:
+                        mode = "zigzag"
+                        bs_pred = "Small" if actual_bs == "Big" else "Big"
 
-        # --- Super 8 & 4 Logic Simulation (With Prevention of Chain Reaction) ---
+        # --- Super 8 & 4 Logic Simulation ---
         just_resolved = False
         
         if se_active:
             if num in [4, 6]:
                 se_wins += 1
                 se_active = False
-                just_resolved = True # Prevent S4 from opening immediately
+                just_resolved = True 
             elif num == 8:
                 se_level = 1
             else:
@@ -175,7 +168,7 @@ def get_100_rounds_stats(full_history):
             if num in [8, 6]:
                 s4_wins += 1
                 s4_active = False
-                just_resolved = True # Prevent S8 from opening immediately
+                just_resolved = True 
             elif num == 4:
                 s4_level = 1
             elif num in [0, 5]:
@@ -235,6 +228,8 @@ def background_bot_loop():
                     if last_processed is None:
                         last_processed = issue
                         bot_state["bs_pred"] = actual_bs
+                        bot_state["mode"] = "normal"
+                        bot_state["bs_level_num"] = 1
                         bot_state["status"] = "PREDICTING"
                         bot_state["jackpot"] = False
                         print(f"✅ Initialized at Ticket: {issue} | Multi-Tracker Ready")
@@ -249,7 +244,7 @@ def background_bot_loop():
                         s4_res_status = ""
 
                         if bot_state["status"] == "PREDICTING":
-                            # --- 1. Big/Small Logic (Trend + 3-Circle + Strict L8 Stop Loss) ---
+                            # --- 1. Big/Small Logic (Trend -> 3-Circle -> ZigZag + L8 Stop Loss) ---
                             bs_win = (bot_state["bs_pred"] == actual_bs)
                             bot_state["jackpot"] = bs_win 
                             bs_res_status = f"{bot_state['bs_pred']} {'✅ WIN' if bs_win else '❌ FAIL'}"
@@ -257,7 +252,7 @@ def background_bot_loop():
                             if bs_win: 
                                 bot_state["bs_level_num"] = 1
                                 bot_state["mode"] = "normal"
-                                bot_state["circle_count"] = 0
+                                bot_state["bs_pred"] = actual_bs # Normal Trend Follow
                             else: 
                                 # STRICT L8 STOP LOSS
                                 if bot_state["bs_level_num"] >= 8:
@@ -265,25 +260,20 @@ def background_bot_loop():
                                     bs_res_status += " [🛑 L8 STOP LOSS]"
                                     bot_state["bs_level_num"] = 1
                                     bot_state["mode"] = "normal"
-                                    bot_state["circle_count"] = 0
                                     bot_state["bs_pred"] = actual_bs # Reset to fresh trend
                                 else:
                                     bot_state["bs_level_num"] += 1
                                     
-                                    if bot_state["mode"] == "normal":
-                                        if bot_state["bs_level_num"] >= 4:
-                                            bot_state["mode"] = "3-circle"
-                                            bot_state["circle_current_target"] = actual_bs # Opposite of fail is Actual
-                                            bot_state["circle_count"] = 1
-                                            bot_state["bs_pred"] = bot_state["circle_current_target"]
-                                        else:
-                                            bot_state["bs_pred"] = actual_bs
-                                    elif bot_state["mode"] == "3-circle":
-                                        bot_state["circle_count"] += 1
-                                        if bot_state["circle_count"] > 3:
-                                            bot_state["circle_current_target"] = "Small" if bot_state["circle_current_target"] == "Big" else "Big"
-                                            bot_state["circle_count"] = 1
-                                        bot_state["bs_pred"] = bot_state["circle_current_target"]
+                                    if bot_state["bs_level_num"] <= 3:
+                                        bot_state["mode"] = "normal"
+                                        bot_state["bs_pred"] = actual_bs
+                                    elif bot_state["bs_level_num"] == 4:
+                                        bot_state["mode"] = "3-circle"
+                                        bot_state["bs_pred"] = actual_bs
+                                    elif bot_state["bs_level_num"] >= 5:
+                                        bot_state["mode"] = "zigzag"
+                                        print("   ⚡ ZigZag Mode Activated!")
+                                        bot_state["bs_pred"] = "Small" if actual_bs == "Big" else "Big"
 
                             # Flag to prevent S8 and S4 from chain-reacting
                             just_resolved = False
@@ -383,7 +373,11 @@ def background_bot_loop():
                                 text += f"\n➖➖➖➖➖➖➖➖\n\n"
                             
                             text += f"🎟️ *Prediction For Ticket:* {next_issue}\n\n"
-                            mode_text = " *(🔄 3-Circle)*" if bot_state.get("mode") == "3-circle" else ""
+                            
+                            mode_text = ""
+                            if bot_state.get("mode") == "3-circle": mode_text = " *(🔄 3-Circle)*"
+                            elif bot_state.get("mode") == "zigzag": mode_text = " *(⚡ ZigZag)*"
+                            
                             text += f"📏 *B/S Pred:* {bot_state['bs_pred']} (L{bot_state['bs_level_num']}){mode_text}\n\n"
                             
                             if bot_state["se_active"]:
@@ -463,8 +457,9 @@ HTML_TEMPLATE = """
                 .then(data => {
                     document.getElementById('last_issue').innerText = data.last_issue;
                     
-                    let bsText = data.bs_pred + " (" + data.bs_level + ")";
+                    let bsText = data.bs_pred + " (L" + data.bs_level_num + ")";
                     if(data.mode === "3-circle") { bsText += " 🔄 3-Circle"; }
+                    else if(data.mode === "zigzag") { bsText += " ⚡ ZigZag"; }
                     document.getElementById('bs_info').innerText = bsText;
                     
                     document.getElementById('se_wins').innerText = data.se_wins_100;

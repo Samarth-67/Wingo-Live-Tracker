@@ -11,11 +11,10 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-TELEGRAM_TOKEN = "8400838585:AAGmy3RLrhL4ipnM_o5SodEX8bSC2VGPFLQ" 
-TARGET_GROUP_ID = "-1004125807200"  # <--- तुझा नवीन चॅनेल/ग्रुप आयडी इथे ॲड केला आहे
+TELEGRAM_TOKEN = "7706219157:AAH4XrsEnDxSNtlu2i974ALZ--M_3hbMIfA" 
+TARGET_GROUP_ID = "-1003950996760"  # <--- नवीन चॅनेल/ग्रुप आयडी
 
 # 🔐 सिक्रेट पासवर्ड्स
-PASS_30S = "11111"  # ३० सेकंदाच्या गेमसाठी
 PASS_1M = "22222"   # १ मिनिटाच्या गेमसाठी
 # ----------------------------------------
 
@@ -39,7 +38,6 @@ def create_state(name, interval):
         "live_records": []
     }
 
-state_30s = create_state("WinGo 30S", "30S")
 state_1m = create_state("WinGo 1M", "1M")
 
 def send_telegram_message_direct(chat_id, text):
@@ -68,11 +66,7 @@ def telegram_listener():
                         parts = text.split()
                         if len(parts) == 2:
                             pwd = parts[1]
-                            if pwd == PASS_30S:
-                                state_30s["is_running"] = True
-                                state_30s["active_chat_id"] = chat_id
-                                send_telegram_message_direct(chat_id, f"✅ *[30S Strategy] Activated! Signals will be sent to your target group.*")
-                            elif pwd == PASS_1M:
+                            if pwd == PASS_1M:
                                 state_1m["is_running"] = True
                                 state_1m["active_chat_id"] = chat_id
                                 send_telegram_message_direct(chat_id, f"✅ *[1M Strategy] Activated! Signals will be sent to your target group.*")
@@ -84,10 +78,7 @@ def telegram_listener():
                         parts = text.split()
                         if len(parts) == 2:
                             pwd = parts[1]
-                            if pwd == PASS_30S:
-                                state_30s["is_running"] = False
-                                send_telegram_message_direct(chat_id, "🛑 *[30S Strategy] Stopped Successfully!*")
-                            elif pwd == PASS_1M:
+                            if pwd == PASS_1M:
                                 state_1m["is_running"] = False
                                 send_telegram_message_direct(chat_id, "🛑 *[1M Strategy] Stopped Successfully!*")
                             else:
@@ -216,7 +207,7 @@ def process_strategy(state, records):
             # जर लेव्हल ४ सुरु झाली असेल (म्हणजे लेव्हल ३ फेल झाली आहे)
             if state["bs_level"] >= 4: 
                 state["mode"] = "3-circle"
-                # ✅ दुरुस्ती: जे प्रेडिक्शन फेल गेलं (state["bs_pred"]), तेच पुढे ३ वेळा चालू ठेवायचं आहे
+                # ✅ जे प्रेडिक्शन फेल गेलं (state["bs_pred"]), तेच पुढे ३ वेळा चालू ठेवायचं आहे
                 state["circle_current_target"] = state["bs_pred"]
                 state["circle_count"] = 1
                 state["bs_pred"] = state["circle_current_target"]
@@ -242,15 +233,6 @@ def process_strategy(state, records):
         state["last_processed_issue"] = latest_issue
         return True
     return False
-
-def worker_30s():
-    url = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
-    while True:
-        data = fetch_data(url)
-        if data:
-            records = extract_records(data)
-            process_strategy(state_30s, records)
-        time.sleep(2)
 
 def worker_1m():
     url = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
@@ -290,19 +272,17 @@ def render_game_panel(state):
     return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']}[/]", border_style="cyan", width=45)
 
 def create_master_ui():
-    p_30s = render_game_panel(state_30s)
     p_1m = render_game_panel(state_1m)
     return Group(
-        Align.center("[bold yellow]🚀 MASTER ALL-IN-ONE BOT (1M & 30S)[/bold yellow]\n"),
-        Align.center(Group(p_30s, p_1m))
+        Align.center("[bold yellow]🚀 1 MINUTE BOT[/bold yellow]\n"),
+        Align.center(p_1m)
     )
 
 if __name__ == "__main__":
     t_list = threading.Thread(target=telegram_listener, daemon=True)
-    t_30s = threading.Thread(target=worker_30s, daemon=True)
     t_1m = threading.Thread(target=worker_1m, daemon=True)
     
-    t_list.start(); t_30s.start(); t_1m.start()
+    t_list.start(); t_1m.start()
 
     with Live(create_master_ui(), console=console, refresh_per_second=2, screen=False) as live:
         while True:

@@ -247,7 +247,10 @@ def background_bot_loop():
                             # --- 1. Big/Small Logic (Trend -> 3-Circle -> ZigZag + L8 Stop Loss) ---
                             bs_win = (bot_state["bs_pred"] == actual_bs)
                             bot_state["jackpot"] = bs_win 
-                            bs_res_status = f"{bot_state['bs_pred']} {'✅ WIN' if bs_win else '❌ FAIL'}"
+                            
+                            # Added Emoji to Result Log
+                            past_emoji = "🟠" if bot_state['bs_pred'] == "Big" else "🔵"
+                            bs_res_status = f"{past_emoji} {bot_state['bs_pred']} {'✅ WIN' if bs_win else '❌ FAIL'}"
 
                             if bs_win: 
                                 bot_state["bs_level_num"] = 1
@@ -356,8 +359,6 @@ def background_bot_loop():
                         # Send Telegram Signal if active
                         if bot_state["active_until"] > 0 and time.time() < bot_state["active_until"]:
                             text = f"🚀 *VSR WINGO Signals 1 Minute* 🚀\n\n"
-                            text += f"📊 *LAST 100:* 🎱 S8 Wins: {bot_state['se_wins_100']} | 🍀 S4 Wins: {bot_state['s4_wins_100']}\n"
-                            text += f"📈 Max B/S Trend: L{bot_state['max_lvl_100']}\n\n"
                             
                             if bs_res_status:
                                 text += f"🔄 *Result for {issue}:*\n"
@@ -378,17 +379,17 @@ def background_bot_loop():
                             if bot_state.get("mode") == "3-circle": mode_text = " *(🔄 3-Circle)*"
                             elif bot_state.get("mode") == "zigzag": mode_text = " *(⚡ ZigZag)*"
                             
-                            text += f"📏 *B/S Pred:* {bot_state['bs_pred']} (L{bot_state['bs_level_num']}){mode_text}\n\n"
+                            # Added Big/Small Emojis based on Prediction
+                            current_bs_emoji = "🟠 Big" if bot_state['bs_pred'] == "Big" else "🔵 Small"
+                            text += f"📏 *B/S Pred:* {current_bs_emoji} (L{bot_state['bs_level_num']}){mode_text}\n\n"
                             
+                            # Kept only active alerts, removed the 'Waiting' clutter
                             if bot_state["se_active"]:
                                 text += f"⚠️ 🎱 *SUPER 8 ALERT!*\n"
                                 text += f"🎯 *Targets:* {bot_state['se_target']} (L{bot_state['se_level']})\n\n"
                             if bot_state["s4_active"]:
                                 text += f"⚠️ 🍀 *SUPER 4 ALERT!*\n"
                                 text += f"🎯 *Targets:* {bot_state['s4_target']} (L{bot_state['s4_level']})\n\n"
-                            
-                            if not bot_state["se_active"] and not bot_state["s4_active"]:
-                                text += f"⏸️ *Number Pred:* Waiting for 8 or 4\n"
 
                             send_telegram_message(TARGET_CHANNEL_ID, text)
                         elif bot_state["active_until"] > 0 and time.time() >= bot_state["active_until"]:

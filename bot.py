@@ -10,13 +10,11 @@ from rich.live import Live
 
 console = Console()
 
-# --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-TELEGRAM_TOKEN = "8808901816:AAFTYigKQeeH5--jw6KDM_aAlsL9SIZCCXo" 
-
-# 🔐 सिक्रेट पासवर्ड्स
-PASS_30S = "11111"  # ३० सेकंदाच्या गेमसाठी
-PASS_1M = "22222"   # १ मिनिटाच्या गेमसाठी
-# ----------------------------------------
+# --- 🚀 TELEGRAM BOT CONFIGURATION (पहिल्या कोडमधील अचूक डिटेल्स) 🚀 ---
+TELEGRAM_TOKEN = "8886107397:AAHENOebGnrupxvGKqKh5cKC3SmujXJOV3w" 
+TARGET_CHANNEL_ID = "-1004370895879"  
+SECRET_PASSWORD = "12345"  
+# ------------------------------------------------------------------------
 
 def create_state(name, interval):
     return {
@@ -31,7 +29,6 @@ def create_state(name, interval):
         "history": [],
         "stats": {"bs_win": 0, "bs_fail": 0, "bs_skip": 0, "total_trades": 0},
         "is_running": False,       
-        "active_chat_id": None,   
         "live_records": []
     }
 
@@ -39,11 +36,10 @@ state_30s = create_state("WinGo 30S", "30S")
 state_1m = create_state("WinGo 1M", "1M")
 
 # --- SUPER 8 & 4 Global States ---
-global_se_wins_100 = 0
-global_se_fails_100 = 0
-global_s4_wins_100 = 0
-global_s4_fails_100 = 0
-global_max_lvl_100 = 1
+tracker = {
+    "se_active": False, "se_level": 0, "se_target": "4 & 6",
+    "s4_active": False, "s4_level": 0, "s4_target": "8 & 6"
+}
 
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
@@ -66,41 +62,37 @@ def telegram_listener():
                     chat_id = message.get("chat", {}).get("id")
                     text = message.get("text", "").strip()
 
-                    # --- START COMMANDS ---
+                    # --- START COMMAND ---
                     if text.startswith("/signal"):
                         parts = text.split()
-                        if len(parts) == 2:
-                            pwd = parts[1]
-                            if pwd == PASS_30S:
-                                state_30s["is_running"] = True
-                                state_30s["active_chat_id"] = chat_id
-                                send_telegram_message_direct(chat_id, "✅ *[30S Strategy] Activated!*")
-                            elif pwd == PASS_1M:
-                                state_1m["is_running"] = True
-                                state_1m["active_chat_id"] = chat_id
-                                send_telegram_message_direct(chat_id, "✅ *[1M Strategy] Activated!*")
-                            else:
-                                send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
+                        if len(parts) == 2 and parts[1] == SECRET_PASSWORD:
+                            state_30s["is_running"] = True
+                            state_1m["is_running"] = True
+                            # चॅनेलवर मेसेज जाईल
+                            send_telegram_message_direct(TARGET_CHANNEL_ID, "✅ *[Master AI] 30S & 1M Strategies Activated!*")
+                            # ज्याने कमांड टाकली त्यालाही रिप्लाय मिळेल
+                            if str(chat_id) != TARGET_CHANNEL_ID:
+                                send_telegram_message_direct(chat_id, "✅ Bot Activated! Signals routing to target channel.")
+                        elif len(parts) == 2 and parts[1] != SECRET_PASSWORD:
+                            send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                                 
-                    # --- STOP COMMANDS ---
+                    # --- STOP COMMAND ---
                     elif text.startswith("/stop"):
                         parts = text.split()
-                        if len(parts) == 2:
-                            pwd = parts[1]
-                            if pwd == PASS_30S:
-                                state_30s["is_running"] = False
-                                send_telegram_message_direct(chat_id, "🛑 *[30S Strategy] Stopped!*")
-                            elif pwd == PASS_1M:
-                                state_1m["is_running"] = False
-                                send_telegram_message_direct(chat_id, "🛑 *[1M Strategy] Stopped!*")
-                            else:
-                                send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
+                        if len(parts) == 2 and parts[1] == SECRET_PASSWORD:
+                            state_30s["is_running"] = False
+                            state_1m["is_running"] = False
+                            send_telegram_message_direct(TARGET_CHANNEL_ID, "🛑 *[Master AI] Stopped Successfully!*")
+                            if str(chat_id) != TARGET_CHANNEL_ID:
+                                send_telegram_message_direct(chat_id, "🛑 Stopped successfully!")
+                        elif len(parts) == 2 and parts[1] != SECRET_PASSWORD:
+                            send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
         except Exception:
             pass
         time.sleep(3)
 
 def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
-    target_chat_id = state.get("active_chat_id")
+    target_chat_id = TARGET_CHANNEL_ID # आता मेसेज फक्त याच चॅनेलवर जाईल
     if not target_chat_id: return
 
     game_name = state["name"]
@@ -152,12 +144,6 @@ def extract_records(data):
     elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: return data["data"]["list"]
     return []
 
-# S8 and S4 global trackers
-tracker = {
-    "se_active": False, "se_level": 0, "se_target": "4 & 6",
-    "s4_active": False, "s4_level": 0, "s4_target": "8 & 6"
-}
-
 def process_strategy(state, records):
     global tracker
     
@@ -205,7 +191,7 @@ def process_strategy(state, records):
             else:
                 state["stats"]["bs_fail"] += 1
                 
-                # --- NEW STRICT ZIGZAG LOGIC ---
+                # --- STRICT ZIGZAG LOGIC ---
                 if state["bs_level"] >= 8: # STRICT L8 STOP LOSS
                     bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL [🛑 L8 STOP LOSS]"
                     state["bs_level"] = 1
@@ -329,7 +315,7 @@ def process_strategy(state, records):
                 if not tracker["se_active"] and not tracker["s4_active"]:
                     msg += f"⏸️ *Number Pred:* Waiting for 8 or 4\n"
                     
-                send_telegram_message_direct(state["active_chat_id"], msg)
+                send_telegram_message_direct(TARGET_CHANNEL_ID, msg)
             else:
                 # 30S normal flow
                 send_telegram_signal(state, next_issue, state["bs_pred"], state["bs_level"], bs_res_status)

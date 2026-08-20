@@ -32,7 +32,7 @@ def create_state(name, interval):
         # ---------------------------------------
         
         # --- REBOUND SIMULATOR VARIABLES ---
-        "rebound_history": [],  # शेवटचे 5 विजय कोणत्या लेव्हलवर आले हे सेव्ह करण्यासाठी
+        "rebound_history": [],  # शेवटचे 10 विजय कोणत्या लेव्हलवर आले हे सेव्ह करण्यासाठी (५ ऐवजी १० केले)
         "market_zone": "🟢 SAFE ZONE (Analyzing...)",
         # ---------------------------------------
         
@@ -74,7 +74,7 @@ def telegram_listener():
                             if pwd == PASS_30S:
                                 state_30s["is_running"] = True
                                 state_30s["active_chat_id"] = chat_id
-                                send_telegram_message_direct(chat_id, f"✅ *[30S Strategy] Activated! Live Prediction + Rebound Simulator is ON.*")
+                                send_telegram_message_direct(chat_id, f"✅ *[30S Strategy] Activated! Live Prediction + 10-Rebound Simulator is ON.*")
                             else:
                                 send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                                 
@@ -123,7 +123,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     # =========================================================
     text += f"➖➖ *SIMULATOR REPORT* ➖➖\n"
     text += f"🌀 *Zone:* {state['market_zone']}\n"
-    text += f"📈 *Past 5 Rebounds:* {state['rebound_history']}\n"
+    text += f"📈 *Past 10 Rebounds:* {state['rebound_history']}\n" # ५ ऐवजी १० केले
     text += f"➖➖➖➖➖➖➖➖➖➖➖➖\n"
     # =========================================================
     
@@ -191,7 +191,7 @@ def process_strategy(state, records):
                 # 🚀 REBOUND SIMULATOR LOGIC (MARKET ZONE DETECTION) 🚀
                 # =========================================================
                 state["rebound_history"].append(state["bs_level"])
-                if len(state["rebound_history"]) > 5:
+                if len(state["rebound_history"]) > 10: # <--- ५ ऐवजी १० केले
                     state["rebound_history"].pop(0)
                     
                 rebounds = state["rebound_history"]
@@ -200,7 +200,7 @@ def process_strategy(state, records):
                     prev_reb = rebounds[-2]
                     avg_reb = sum(rebounds) / len(rebounds)
                     
-                    if curr_reb >= 6 or avg_reb >= 4.5:
+                    if curr_reb >= 6 or avg_reb >= 4.0: # १० चा डेटा असल्यामुळे सरासरी ४.० केली आहे
                         state["market_zone"] = "🔴 DANGER ZONE (Volatile)"
                     elif curr_reb > prev_reb and curr_reb >= 4:
                         state["market_zone"] = f"⚠️ DIVERGENCE (Lower Lows: L{prev_reb} -> L{curr_reb})"

@@ -40,9 +40,9 @@ bot_state = {
     "s4_target": "8 & 6",       
     "s4_mega_win": False,
     
-    # --- ZONE SIMULATOR VARIABLES ---
+    # --- ZONE & REBOUND SIMULATOR VARIABLES ---
     "market_zone": "🟢 SAFE ZONE",
-    "last_max_level": 1,
+    "rebound_history": [],  # मागील १० रिबाउंड्सची लिस्ट
     
     # --- Stats ---
     "full_history": [],
@@ -123,6 +123,7 @@ def get_100_rounds_stats(full_history):
         num = item['number']
         actual_bs = "Big" if num >= 5 else "Small"
         
+        # --- B/S Logic Simulation (With 3-Same & 3-Opposite & L8 Stop Loss) ---
         if bs_pred is None:
             bs_pred = actual_bs
         else:
@@ -131,7 +132,7 @@ def get_100_rounds_stats(full_history):
                 mode = "normal"
                 bs_pred = actual_bs
             else:
-                if bs_level == 8:
+                if bs_level == 8: # STOP LOSS HIT
                     bs_level = 1
                     mode = "normal"
                     bs_pred = actual_bs
@@ -151,6 +152,7 @@ def get_100_rounds_stats(full_history):
                         if bs_level == 7:
                             bs_pred = "Small" if bs_pred == "Big" else "Big"
 
+        # --- Super 8 & 4 Logic Simulation ---
         just_resolved = False
         
         if se_active:
@@ -175,7 +177,7 @@ def get_100_rounds_stats(full_history):
             elif num == 4:
                 s4_level = 1
             elif num in [0, 5]:
-                pass 
+                pass # Violet Skip
             else:
                 if s4_level == 1:
                     s4_level = 2
@@ -201,6 +203,7 @@ def background_bot_loop():
         try:
             records = get_wingo_data()
             if records:
+                # ---------------- Update Full History & Stats ----------------
                 for r in records:
                     iss = str(r.get("issueNumber") or r.get("issue") or "")
                     num_str = str(r.get("number") or r.get("drawNumber") or "")
@@ -217,6 +220,7 @@ def background_bot_loop():
                 bot_state["s4_wins_100"] = s4_w
                 bot_state["s4_fails_100"] = s4_f
                 bot_state["max_lvl_100"] = max_lvl
+                # --------------------------------------------------------------------
 
                 latest = records[0]
                 issue = str(latest.get("issueNumber") or latest.get("issue") or latest.get("period") or "-")
@@ -245,6 +249,7 @@ def background_bot_loop():
                         s4_res_status = ""
 
                         if bot_state["status"] == "PREDICTING":
+                            # --- 1. Big/Small Logic (Trend -> 3-Same -> 3-Opposite + L8 Stop Loss) ---
                             bs_win = (bot_state["bs_pred"] == actual_bs)
                             bot_state["jackpot"] = bs_win 
                             
@@ -253,85 +258,112 @@ def background_bot_loop():
 
                             if bs_win: 
                                 reached_lvl = bot_state["bs_level_num"]
-                                if reached_lvl >= 5:
-                                    bot_state["last_max_level"] = reached_lvl
-                                    bot_state["market_zone"] = f"⚠️ DIVERGENCE ZONE (Prev Rebound at L{reached_lvl})"
-                                else:
-                                    if bot_state["last_max_level"] >= 5:
-                                        bot_state["market_zone"] = f"⚠️ DIVERGENCE ZONE (After L{bot_state['last_max_level']} Rebound)"
-                                    else:
-                                        bot_state["market_zone"] = "🟢 SAFE ZONE"
+                                
+                                # पास्ट रिबाउंड्स सेव्ह करणे (जास्तीत जास्त १०)
+                                bot_state["rebound_history"].append(reached_lvl)
+                                if len(bot_state["rebound_history"]) > 10:
+                                    bot_state["rebound_history"].pop(0)
+
+                                # =========================================================
+                                # 🚀 EXACT STATE-MACHINE ZONE LOGIC 🚀
+                                # =========================================================
+                                if 1 <= reached_lvl <= 4:
+                                    bot_state["market_zone"] = "🟢 SAFE ZONE"
+                                elif 5 <= reached_lvl <= 6:
+                                    bot_state["market_zone"] = f"⚠️ DIVERGENCE ZONE (Rebound at L{reached_lvl})"
+                                elif reached_lvl >= 7:
+                                    bot_state["market_zone"] = f"🔴 DANGER ZONE (Rebound at L{reached_lvl})"
+                                # =========================================================
 
                                 bot_state["bs_level_num"] = 1
                                 bot_state["mode"] = "normal"
-                                bot_state["bs_pred"] = actual_bs 
+                                bot_state["bs_pred"] = actual_bs # Normal Trend Follow
                             else: 
+                                # STRICT L8 STOP LOSS
                                 if bot_state["bs_level_num"] >= 8:
                                     print("   ⚠️ 🛑 B/S STRICT STOP LOSS HIT AT L8!")
                                     bs_res_status += " [🛑 L8 STOP LOSS]"
                                     bot_state["bs_level_num"] = 1
                                     bot_state["mode"] = "normal"
-                                    bot_state["bs_pred"] = actual_bs 
+                                    bot_state["bs_pred"] = actual_bs # Reset to fresh trend
                                 else:
                                     bot_state["bs_level_num"] += 1
                                     
-                                    if bot_state["bs_level_num"] >= 5:
+                                    # हरत असताना लाईव्ह लेव्हलनुसार झोन अपडेट करणे
+                                    if bot_state["bs_level_num"] >= 7:
                                         bot_state["market_zone"] = f"🔴 DANGER ZONE (Active L{bot_state['bs_level_num']})"
-
+                                    elif bot_state["bs_level_num"] >= 5:
+                                        bot_state["market_zone"] = f"⚠️ DIVERGENCE ZONE (Active L{bot_state['bs_level_num']})"
+                                    
                                     if bot_state["bs_level_num"] <= 3:
                                         bot_state["mode"] = "normal"
                                         bot_state["bs_pred"] = actual_bs
                                     elif bot_state["bs_level_num"] in [4, 5, 6]:
                                         bot_state["mode"] = "3-same"
+                                        print(f"   🔄 3-Same Mode Activated! L{bot_state['bs_level_num']}")
                                     elif bot_state["bs_level_num"] in [7, 8]:
                                         bot_state["mode"] = "3-opposite"
+                                        print(f"   🔁 3-Opposite Mode Activated! L{bot_state['bs_level_num']}")
                                         if bot_state["bs_level_num"] == 7:
                                             bot_state["bs_pred"] = "Small" if bot_state["bs_pred"] == "Big" else "Big"
 
+                            # Flag to prevent S8 and S4 from chain-reacting
                             just_resolved = False
 
+                            # --- 2. SUPER 8 Evaluation ---
                             bot_state["se_mega_win"] = False
                             if bot_state["se_active"]:
                                 if number in [4, 6]:
+                                    print(f"   👉 🎱🔥 SUPER 8 DUAL WIN! (Won at L{bot_state['se_level']} with {number}) 🔥🎱")
                                     se_res_status = f"🎱 ✅ WIN (L{bot_state['se_level']} - Num {number})"
                                     bot_state["se_mega_win"] = True
                                     bot_state["se_active"] = False
                                     bot_state["se_level"] = 0
-                                    just_resolved = True 
+                                    just_resolved = True # PREVENT S4 CHAIN
                                 elif number == 8:
+                                    print(f"   👉 🎱 Got '8' again! Restarting Super 8 Level 1.")
                                     se_res_status = f"🎱 ❌ FAIL (Got 8, Restarting L1)"
                                     bot_state["se_level"] = 1
                                 else:
                                     if bot_state["se_level"] == 1:
+                                        print(f"   👉 ❌ Super 8 L1 Fail. Moving to L2.")
                                         se_res_status = f"🎱 ❌ FAIL (L1 Targets 4 & 6)"
                                         bot_state["se_level"] = 2
                                     else:
+                                        print(f"   👉 ⚠️ 🛑 SUPER 8 STOP LOSS HIT!")
                                         se_res_status = f"🎱 ❌ FAIL L2 [🛑 STOP]"
                                         bot_state["se_active"] = False
                                         bot_state["se_level"] = 0
 
+                            # --- 3. SUPER 4 Evaluation (With Violet Skip) ---
                             bot_state["s4_mega_win"] = False
                             if bot_state["s4_active"]:
                                 if number in [8, 6]:
+                                    print(f"   👉 🍀🔥 SUPER 4 DUAL WIN! (Won at L{bot_state['s4_level']} with {number}) 🔥🍀")
                                     s4_res_status = f"🍀 ✅ WIN (L{bot_state['s4_level']} - Num {number})"
                                     bot_state["s4_mega_win"] = True
                                     bot_state["s4_active"] = False
                                     bot_state["s4_level"] = 0
-                                    just_resolved = True 
+                                    just_resolved = True # PREVENT S8 CHAIN
                                 elif number == 4:
+                                    print(f"   👉 🍀 Got '4' again! Restarting Super 4 Level 1.")
                                     s4_res_status = f"🍀 ❌ FAIL (Got 4, Restarting L1)"
                                     bot_state["s4_level"] = 1
                                 elif number in [0, 5]:
+                                    print(f"   👉 🍀 Violet ({number}) appeared! Skipping this level.")
                                     s4_res_status = f"🍀 ⏸️ SKIPPED (Violet Came, Holding L{bot_state['s4_level']})"
                                 else:
                                     if bot_state["s4_level"] == 1:
+                                        print(f"   👉 ❌ Super 4 L1 Fail. Moving to L2.")
                                         s4_res_status = f"🍀 ❌ FAIL (L1 Targets 8 & 6)"
                                         bot_state["s4_level"] = 2
                                     else:
+                                        print(f"   👉 ⚠️ 🛑 SUPER 4 STOP LOSS HIT!")
                                         s4_res_status = f"🍀 ❌ FAIL L2 [🛑 STOP]"
                                         bot_state["s4_active"] = False
                                         bot_state["s4_level"] = 0
 
+                            # --- 4. Trigger Checker for Next Round (Only if not just resolved) ---
                             if not just_resolved:
                                 if not bot_state["se_active"]:
                                     if number == 8:
@@ -342,6 +374,7 @@ def background_bot_loop():
                                         bot_state["s4_active"] = True
                                         bot_state["s4_level"] = 1
 
+                            # Format Status
                             bot_state["last_result"] = f"B/S: {bs_res_status}"
                             if se_res_status != "": bot_state["last_result"] += f" | S8: {se_res_status}"
                             if s4_res_status != "": bot_state["last_result"] += f" | S4: {s4_res_status}"
@@ -352,6 +385,7 @@ def background_bot_loop():
                         bot_state["bs_level"] = f"L{bot_state['bs_level_num']}"
                         last_processed = issue
 
+                        # Send Telegram Signal if active
                         if bot_state["active_until"] > 0 and time.time() < bot_state["active_until"]:
                             text = f"🚀 *VSR WINGO Signals 1 Minute* 🚀\n\n"
                             
@@ -384,8 +418,12 @@ def background_bot_loop():
                                 text += f"⚠️ 🍀 *SUPER 4 ALERT!*\n"
                                 text += f"🎯 *Targets:* {bot_state['s4_target']} (L{bot_state['s4_level']})\n\n"
 
+                            # =========================================================
+                            # ⚠️ SIMULATOR REPORT (Zone & Past 10 Rebounds) ⚠️
+                            # =========================================================
                             text += f"➖➖ *SIMULATOR REPORT* ➖➖\n"
                             text += f"🌀 *Zone:* {bot_state['market_zone']}\n"
+                            text += f"📈 *Past 10 Rebounds:* {bot_state['rebound_history']}\n"
                             text += f"➖➖➖➖➖➖➖➖➖➖➖➖\n"
                             
                             send_telegram_message(TARGET_CHANNEL_ID, text)
@@ -399,6 +437,7 @@ def background_bot_loop():
             pass
         time.sleep(5)
 
+# Dashboard Design
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -445,7 +484,7 @@ HTML_TEMPLATE = """
             <b>📊 Last Trade Status:</b><br>Initializing...
         </div>
 
-        <div class="jackpot" id="jackpot_box">🔥🎉 JACKPOT! WIN! 🎉🔥</div>
+        <div class="jackpot" id="jackpot_box">🔥🎉 JACKPOT! WIN! 🔥🔥</div>
     </div>
 
     <script>

@@ -207,8 +207,8 @@ def process_strategy(state, records):
             # जर लेव्हल ४ सुरु झाली असेल (म्हणजे लेव्हल ३ फेल झाली आहे)
             if state["bs_level"] >= 4: 
                 state["mode"] = "3-circle"
-                # ✅ जे प्रेडिक्शन फेल गेलं (state["bs_pred"]), तेच पुढे ३ वेळा चालू ठेवायचं आहे
-                state["circle_current_target"] = state["bs_pred"]
+                # ✅ जो रिझल्ट प्रत्यक्षात आला आहे (latest_bs), तोच पुढे ३ वेळा चालू ठेवायचा आहे
+                state["circle_current_target"] = latest_bs
                 state["circle_count"] = 1
                 state["bs_pred"] = state["circle_current_target"]
             else:

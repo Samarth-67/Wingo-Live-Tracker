@@ -531,9 +531,28 @@ HTML_TEMPLATE = """
                         statusBadge.className = "status-badge";
                     }
                 }).catch(err => console.log(err));
-        }
+       }
         setInterval(updateDashboard, 3000);
         updateDashboard();
     </script>
 </body>
 </html>
+"""
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route('/data')
+def get_data():
+    return jsonify(bot_state)
+
+if __name__ == '__main__':
+    t1 = threading.Thread(target=background_bot_loop, daemon=True)
+    t1.start()
+    
+    t2 = threading.Thread(target=telegram_listener, daemon=True)
+    t2.start()
+    
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)

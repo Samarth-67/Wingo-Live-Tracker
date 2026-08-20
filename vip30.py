@@ -31,15 +31,10 @@ def create_state(name, interval):
         "circle_count": 0,
         # ---------------------------------------
         
-        # --- REBOUND SIMULATOR VARIABLES ---
-        "rebound_history": [],  # शेवटचे 10 विजय कोणत्या लेव्हलवर आले हे सेव्ह करण्यासाठी (५ ऐवजी १० केले)
-        "market_zone": "🟢 SAFE ZONE (Analyzing...)",
-        # ---------------------------------------
-        
         "history": [],
         "stats": {"bs_win": 0, "bs_fail": 0, "bs_skip": 0, "total_trades": 0},
         "is_running": False,       
-        "active_chat_id": None,   
+        "active_chat_id": None,    
         "live_records": []
     }
 
@@ -74,7 +69,7 @@ def telegram_listener():
                             if pwd == PASS_30S:
                                 state_30s["is_running"] = True
                                 state_30s["active_chat_id"] = chat_id
-                                send_telegram_message_direct(chat_id, f"✅ *[30S Strategy] Activated! Live Prediction + 10-Rebound Simulator is ON.*")
+                                send_telegram_message_direct(chat_id, f"✅ *[30S Strategy] Activated! Live Prediction is ON.*")
                             else:
                                 send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                                 
@@ -118,15 +113,6 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         text += f"📏 *Prediction:* ⏸️ *WAIT FOR PATTERN*\n"
         text += f"⚠️ *(Pending Level: L{bs_level})*\n\n"
         
-    # =========================================================
-    # ⚠️ REBOUND SIMULATOR REPORT (Along with Predictions) ⚠️
-    # =========================================================
-    text += f"➖➖ *SIMULATOR REPORT* ➖➖\n"
-    text += f"🌀 *Zone:* {state['market_zone']}\n"
-    text += f"📈 *Past 10 Rebounds:* {state['rebound_history']}\n" # ५ ऐवजी १० केले
-    text += f"➖➖➖➖➖➖➖➖➖➖➖➖\n"
-    # =========================================================
-    
     send_telegram_message_direct(target_chat_id, text)
 
 def fetch_data(url):
@@ -186,28 +172,6 @@ def process_strategy(state, records):
             bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
             if bs_win:
                 state["stats"]["bs_win"] += 1
-                
-                # =========================================================
-                # 🚀 REBOUND SIMULATOR LOGIC (MARKET ZONE DETECTION) 🚀
-                # =========================================================
-                state["rebound_history"].append(state["bs_level"])
-                if len(state["rebound_history"]) > 10: # <--- ५ ऐवजी १० केले
-                    state["rebound_history"].pop(0)
-                    
-                rebounds = state["rebound_history"]
-                if len(rebounds) >= 2:
-                    curr_reb = rebounds[-1]
-                    prev_reb = rebounds[-2]
-                    avg_reb = sum(rebounds) / len(rebounds)
-                    
-                    if curr_reb >= 6 or avg_reb >= 4.0: # १० चा डेटा असल्यामुळे सरासरी ४.० केली आहे
-                        state["market_zone"] = "🔴 DANGER ZONE (Volatile)"
-                    elif curr_reb > prev_reb and curr_reb >= 4:
-                        state["market_zone"] = f"⚠️ DIVERGENCE (Lower Lows: L{prev_reb} -> L{curr_reb})"
-                    else:
-                        state["market_zone"] = "🟢 SAFE ZONE"
-                # =========================================================
-                
                 state["bs_level"] = 1 
                 state["bs_fails_in_row"] = 0 
                 state["mode"] = "normal"  # 🟢 जिंकल्यावर पुन्हा नॉर्मल मोडवर येईल
@@ -284,11 +248,7 @@ def render_game_panel(state):
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
-    zone_color = "green" if "SAFE" in state["market_zone"] else ("red" if "DANGER" in state["market_zone"] else "yellow")
-    
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n📏 [bold]Pred:[/] {ui_text}\n"
-    panel_text += f"🌀 [bold]Zone:[/] [{zone_color}]{state['market_zone']}[/]\n"
-    panel_text += f"📈 [bold]Rebounds:[/] {state['rebound_history']}\n"
     panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
     panel_text += f"📊 [bold]W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/] | [bold]S:[/] [yellow]{state['stats']['bs_skip']}[/]\n"
     
@@ -309,7 +269,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S BOT (Live Prediction + Divergence Tracker)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S BOT (Live Prediction)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

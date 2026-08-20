@@ -41,8 +41,8 @@ bot_state = {
     "s4_mega_win": False,
     
     # --- REBOUND SIMULATOR VARIABLES ---
-    "rebound_history": [], # आता इथे १० रिझल्ट्स सेव्ह होतील
-    "market_zone": "🟢 SAFE ZONE (Analyzing...)",
+    "rebound_history": [],
+    "market_zone": "🟢 SAFE ZONE",
     
     # --- Stats ---
     "full_history": [],
@@ -98,7 +98,7 @@ def telegram_listener():
                             bot_state["active_until"] = time.time() + 3600
                             bot_state["notified_sleep"] = False
                             print("✅ Bot activated via Telegram!")
-                            send_telegram_message(chat_id, "✅ *Bot Activated! Master AI + 10-Rebound Simulator Running!*")
+                            send_telegram_message(chat_id, "✅ *Bot Activated! Master AI + Simple Divergence Simulator Running!*")
                         else:
                             send_telegram_message(chat_id, "❌ Access Denied!")
         except Exception as e:
@@ -258,27 +258,10 @@ def background_bot_loop():
                             bs_res_status = f"{past_emoji} {bot_state['bs_pred']} {'✅ WIN' if bs_win else '❌ FAIL'}"
 
                             if bs_win: 
-                                # =========================================================
-                                # 🚀 REBOUND SIMULATOR LOGIC (UPDATED TO 10 RESULTS) 🚀
-                                # =========================================================
+                                # इतिहास सेव्ह करणे
                                 bot_state["rebound_history"].append(bot_state["bs_level_num"])
-                                if len(bot_state["rebound_history"]) > 10:  # <--- ५ ऐवजी १० केले
+                                if len(bot_state["rebound_history"]) > 10:
                                     bot_state["rebound_history"].pop(0)
-                                    
-                                rebounds = bot_state["rebound_history"]
-                                if len(rebounds) >= 2:
-                                    curr_reb = rebounds[-1]
-                                    prev_reb = rebounds[-2]
-                                    avg_reb = sum(rebounds) / len(rebounds)
-                                    
-                                    # १० चा डेटा असल्यामुळे सरासरी ४.० केली आहे
-                                    if curr_reb >= 6 or avg_reb >= 4.0:
-                                        bot_state["market_zone"] = "🔴 DANGER ZONE (High Levels)"
-                                    elif curr_reb > prev_reb and curr_reb >= 4:
-                                        bot_state["market_zone"] = f"⚠️ DIVERGENCE (Lower Lows: L{prev_reb} -> L{curr_reb})"
-                                    else:
-                                        bot_state["market_zone"] = "🟢 SAFE ZONE"
-                                # =========================================================
 
                                 bot_state["bs_level_num"] = 1
                                 bot_state["mode"] = "normal"
@@ -305,6 +288,22 @@ def background_bot_loop():
                                         print(f"   🔁 3-Opposite Mode Activated! L{bot_state['bs_level_num']}")
                                         if bot_state["bs_level_num"] == 7:
                                             bot_state["bs_pred"] = "Small" if bot_state["bs_pred"] == "Big" else "Big"
+
+                            # =========================================================
+                            # 🚀 LIVE ZONE DETECTION (SIMPLE & SOLID LOGIC) 🚀
+                            # =========================================================
+                            rebounds = bot_state["rebound_history"]
+                            active_lvl = bot_state["bs_level_num"]
+                            
+                            last_reb = rebounds[-1] if len(rebounds) > 0 else 1
+                            
+                            if active_lvl >= 5:
+                                bot_state["market_zone"] = f"🔴 DANGER ZONE (Active L{active_lvl})"
+                            elif last_reb >= 5:
+                                bot_state["market_zone"] = f"⚠️ DIVERGENCE ZONE (Prev L{last_reb})"
+                            else:
+                                bot_state["market_zone"] = "🟢 SAFE ZONE"
+                            # =========================================================
 
                             # Flag to prevent S8 and S4 from chain-reacting
                             just_resolved = False
@@ -409,11 +408,10 @@ def background_bot_loop():
                                 text += f"🎯 *Targets:* {bot_state['s4_target']} (L{bot_state['s4_level']})\n\n"
 
                             # =========================================================
-                            # ⚠️ REBOUND SIMULATOR REPORT (UPDATED UI) ⚠️
+                            # ⚠️ REBOUND SIMULATOR REPORT ⚠️
                             # =========================================================
                             text += f"➖➖ *SIMULATOR REPORT* ➖➖\n"
                             text += f"🌀 *Zone:* {bot_state['market_zone']}\n"
-                            text += f"📈 *Past 10 Rebounds:* {bot_state['rebound_history']}\n"
                             text += f"➖➖➖➖➖➖➖➖➖➖➖➖\n"
                             
                             send_telegram_message(TARGET_CHANNEL_ID, text)
@@ -531,28 +529,9 @@ HTML_TEMPLATE = """
                         statusBadge.className = "status-badge";
                     }
                 }).catch(err => console.log(err));
-       }
+        }
         setInterval(updateDashboard, 3000);
         updateDashboard();
     </script>
 </body>
 </html>
-"""
-
-@app.route('/')
-def index():
-    return render_template_string(HTML_TEMPLATE)
-
-@app.route('/data')
-def get_data():
-    return jsonify(bot_state)
-
-if __name__ == '__main__':
-    t1 = threading.Thread(target=background_bot_loop, daemon=True)
-    t1.start()
-    
-    t2 = threading.Thread(target=telegram_listener, daemon=True)
-    t2.start()
-    
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)

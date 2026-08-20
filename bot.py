@@ -94,7 +94,7 @@ def telegram_listener():
                             bot_state["active_until"] = time.time() + 3600
                             bot_state["notified_sleep"] = False
                             print("✅ Bot activated via Telegram!")
-                            send_telegram_message(chat_id, "✅ *Bot Activated! Master AI: S8 + S4 + Trend/ZigZag (Strict L8 Stop Loss) Running!*")
+                            send_telegram_message(chat_id, "✅ *Bot Activated! Master AI: S8 + S4 + 3-Same/3-Opposite (Strict L8 Stop Loss) Running!*")
                         else:
                             send_telegram_message(chat_id, "❌ Access Denied!")
         except Exception as e:
@@ -119,7 +119,7 @@ def get_100_rounds_stats(full_history):
         num = item['number']
         actual_bs = "Big" if num >= 5 else "Small"
         
-        # --- B/S Logic Simulation (With Zigzag & L8 Stop Loss) ---
+        # --- B/S Logic Simulation (With 3-Same & 3-Opposite & L8 Stop Loss) ---
         if bs_pred is None:
             bs_pred = actual_bs
         else:
@@ -140,13 +140,14 @@ def get_100_rounds_stats(full_history):
                     if bs_level <= 3:
                         mode = "normal"
                         bs_pred = actual_bs
-                    elif bs_level == 4:
-                        mode = "3-circle"
-                        bs_pred = actual_bs
-                    elif bs_level >= 5:
-                        mode = "zigzag"
-                        # खरा झिगझॅग: आधीच्या प्रेडिक्शनच्या विरुद्ध
-                        bs_pred = "Small" if bs_pred == "Big" else "Big"
+                    elif bs_level in [4, 5, 6]:
+                        mode = "3-same"
+                        # bs_pred remains unchanged from L3
+                        pass 
+                    elif bs_level in [7, 8]:
+                        mode = "3-opposite"
+                        if bs_level == 7:
+                            bs_pred = "Small" if bs_pred == "Big" else "Big"
 
         # --- Super 8 & 4 Logic Simulation ---
         just_resolved = False
@@ -245,7 +246,7 @@ def background_bot_loop():
                         s4_res_status = ""
 
                         if bot_state["status"] == "PREDICTING":
-                            # --- 1. Big/Small Logic (Trend -> 3-Circle -> ZigZag + L8 Stop Loss) ---
+                            # --- 1. Big/Small Logic (Trend -> 3-Same -> 3-Opposite + L8 Stop Loss) ---
                             bs_win = (bot_state["bs_pred"] == actual_bs)
                             bot_state["jackpot"] = bs_win 
                             
@@ -271,14 +272,16 @@ def background_bot_loop():
                                     if bot_state["bs_level_num"] <= 3:
                                         bot_state["mode"] = "normal"
                                         bot_state["bs_pred"] = actual_bs
-                                    elif bot_state["bs_level_num"] == 4:
-                                        bot_state["mode"] = "3-circle"
-                                        bot_state["bs_pred"] = actual_bs
-                                    elif bot_state["bs_level_num"] >= 5:
-                                        bot_state["mode"] = "zigzag"
-                                        print("   ⚡ ZigZag Mode Activated!")
-                                        # खरा झिगझॅग: जुन्या प्रेडिक्शनच्या विरुद्ध (Big -> Small -> Big)
-                                        bot_state["bs_pred"] = "Small" if bot_state["bs_pred"] == "Big" else "Big"
+                                    elif bot_state["bs_level_num"] in [4, 5, 6]:
+                                        bot_state["mode"] = "3-same"
+                                        print(f"   🔄 3-Same Mode Activated! L{bot_state['bs_level_num']}")
+                                        # bs_pred remains unchanged from what failed at L3
+                                    elif bot_state["bs_level_num"] in [7, 8]:
+                                        bot_state["mode"] = "3-opposite"
+                                        print(f"   🔁 3-Opposite Mode Activated! L{bot_state['bs_level_num']}")
+                                        if bot_state["bs_level_num"] == 7:
+                                            bot_state["bs_pred"] = "Small" if bot_state["bs_pred"] == "Big" else "Big"
+                                        # At L8, bs_pred remains unchanged from L7
 
                             # Flag to prevent S8 and S4 from chain-reacting
                             just_resolved = False
@@ -378,8 +381,8 @@ def background_bot_loop():
                             text += f"🎟️ *Prediction For Ticket:* {next_issue}\n\n"
                             
                             mode_text = ""
-                            if bot_state.get("mode") == "3-circle": mode_text = " *(🔄 3-Circle)*"
-                            elif bot_state.get("mode") == "zigzag": mode_text = " *(⚡ ZigZag)*"
+                            if bot_state.get("mode") == "3-same": mode_text = " *(🔄 3-Same)*"
+                            elif bot_state.get("mode") == "3-opposite": mode_text = " *(🔁 3-Opposite)*"
                             
                             # Added Big/Small Emojis based on Prediction
                             current_bs_emoji = "🟠 Big" if bot_state['bs_pred'] == "Big" else "🔵 Small"
@@ -461,8 +464,8 @@ HTML_TEMPLATE = """
                     document.getElementById('last_issue').innerText = data.last_issue;
                     
                     let bsText = data.bs_pred + " (L" + data.bs_level_num + ")";
-                    if(data.mode === "3-circle") { bsText += " 🔄 3-Circle"; }
-                    else if(data.mode === "zigzag") { bsText += " ⚡ ZigZag"; }
+                    if(data.mode === "3-same") { bsText += " 🔄 3-Same"; }
+                    else if(data.mode === "3-opposite") { bsText += " 🔁 3-Opposite"; }
                     document.getElementById('bs_info').innerText = bsText;
                     
                     document.getElementById('se_wins').innerText = data.se_wins_100;

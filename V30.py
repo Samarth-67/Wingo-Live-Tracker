@@ -25,10 +25,8 @@ def create_state(name, interval):
         "last_processed_issue": None,
         "bs_pred": None, "bs_level": 1, "bs_active": True, "bs_fails_in_row": 0,
         
-        # --- 2-CIRCLE STRATEGY VARIABLES ---
-        "mode": "normal",
-        "circle_current_target": None, 
-        "circle_count": 0,
+        # --- NEW 30-ROUND CYCLE STRATEGY VARIABLES ---
+        "cycle_anchor": None, # सायकल सुरु होताना जो निकाल येईल (Big/Small) तो सेव्ह करण्यासाठी
         # ---------------------------------------
         
         "history": [],
@@ -92,7 +90,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     if not target_chat_id: return
 
     game_name = state["name"]
-    text = f"🚀 *VSR {game_name} Trend Follower* 🚀\n\n"
+    text = f"🚀 *VSR {game_name} Master Cycle* 🚀\n\n"
     
     if state["stats"]["total_trades"] > 0 and prev_bs_res:
         text += f"🔄 *Last Trade Result:*\n"
@@ -102,13 +100,16 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
             if "WIN" in prev_bs_res: text += f"\n🔥🎉 *CONGRATS! WIN!* 🎉🔥\n"
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
         
-    text += f"🎟️ *New Issue:* {issue}\n\n"
+    text += f"🎟️ *New Issue:* {issue}\n"
+    
+    # ३० राऊंडची माहिती पाठवण्यासाठी
+    cycle_step = ((state["stats"]["total_trades"]) % 30) + 1
+    text += f"🔄 *Cycle Step:* {cycle_step}/30\n\n"
     
     if state["bs_active"]:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
         text += f"📏 *Prediction:* *{bs_pred_text}*\n"
-        mode_text = "(🔄 2-Circle Mode)" if state["mode"] == "2-circle" else ""
-        text += f"🎯 *Level:* L{bs_level} {mode_text}\n\n"
+        text += f"🎯 *Level:* L{bs_level}\n\n"
     else:
         text += f"📏 *Prediction:* ⏸️ *WAIT FOR PATTERN*\n"
         text += f"⚠️ *(Pending Level: L{bs_level})*\n\n"
@@ -183,8 +184,6 @@ def process_strategy(state, records):
                 state["stats"]["bs_win"] += 1
                 state["bs_level"] = 1 
                 state["bs_fails_in_row"] = 0 
-                state["mode"] = "normal"  # 🟢 जिंकल्यावर पुन्हा नॉर्मल मोडवर येईल
-                state["circle_count"] = 0
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
             else:
                 state["stats"]["bs_fail"] += 1
@@ -209,25 +208,35 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> 2-CIRCLE MODE) 🚀
+        # 🚀 STRATEGY LOGIC (30-ROUND MASTER CYCLE) 🚀
         # =======================================================
-        # हे 1 मिनिटाच्या फाईलमधील हुबेहूब लॉजिक आहे
-        if state["mode"] == "normal":
-            if state["bs_level"] >= 4: 
-                state["mode"] = "2-circle"
-                # Level 3 चे जे prediction होते तेच पुढे L4 आणि L5 साठी वापरायचे (तुमच्या सूचनेनुसार बदल)
-                state["circle_current_target"] = state["bs_pred"] 
-                state["circle_count"] = 1
-                state["bs_pred"] = state["circle_current_target"]
-            else:
-                state["bs_pred"] = latest_bs
-                
-        elif state["mode"] == "2-circle":
-            state["circle_count"] += 1
-            if state["circle_count"] > 2:
-                state["circle_current_target"] = "Small" if state["circle_current_target"] == "Big" else "Big"
-                state["circle_count"] = 1
-            state["bs_pred"] = state["circle_current_target"]
+        cycle_index = (state["stats"]["total_trades"] - 1) % 30  # 0 ते 29 पर्यंत इंडेक्स चालेल
+
+        # जेव्हा चक्राची सुरुवात होते (राऊंड 1, 31, 61...), तेव्हा anchor सेट करा
+        if cycle_index == 0:
+            state["cycle_anchor"] = latest_bs  
+
+        # जर cycle_anchor सेट नसेल (बोट मध्येच सुरु केला असेल), तर लेटेस्ट रिझल्ट घ्या
+        if not state["cycle_anchor"]:
+            state["cycle_anchor"] = latest_bs
+
+        anchor = state["cycle_anchor"]
+        opp = "Small" if anchor == "Big" else "Big"
+
+        # ३० राऊंड्सची नवीन रचना (New 30-Round Pattern)
+        pattern = [
+            # ब्लॉक १ (राऊंड १ ते १०): १ सेम, १ विरुद्ध (1 Big, 1 Small)
+            anchor, opp, anchor, opp, anchor, opp, anchor, opp, anchor, opp,
+            
+            # ब्लॉक २ (राऊंड ११ ते २०): २ सेम, २ विरुद्ध (2 Big, 2 Small)
+            anchor, anchor, opp, opp, anchor, anchor, opp, opp, anchor, anchor,
+            
+            # ब्लॉक ३ (राऊंड २१ ते ३०): ३ सेम, ३ विरुद्ध (3 Big, 3 Small)
+            anchor, anchor, anchor, opp, opp, opp, anchor, anchor, anchor, opp
+        ]
+
+        # पुढच्या राऊंडचे prediction पॅटर्न मधून घेणे
+        state["bs_pred"] = pattern[cycle_index]
         # =======================================================
 
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
@@ -252,10 +261,10 @@ def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
     bs_color = "dark_orange" if state["bs_pred"] == "Big" else "bright_blue"
     
-    ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})" if state["bs_active"] else f"[yellow]WAIT[/] (Pending L{state['bs_level']})"
+    cycle_step = ((state["stats"]["total_trades"]) % 30) + 1
     
-    if state["mode"] == "2-circle":
-        ui_text += " [bold magenta]🔄 2-Circle[/]"
+    ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})" if state["bs_active"] else f"[yellow]WAIT[/] (Pending L{state['bs_level']})"
+    ui_text += f" [bold magenta](Step: {cycle_step}/30)[/]"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
@@ -280,7 +289,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S BOT (Trend -> 2-Circle Strategy)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S BOT (30-Round Master Cycle Strategy)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

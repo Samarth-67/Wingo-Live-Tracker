@@ -11,9 +11,9 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-TELEGRAM_TOKEN = "8660932571:AAHpJ4pE7dOzK3YysJ68eiP1D9Jn7nlNpxc" 
-# 👇 इथे तुमचा बरोबर ग्रुप आयडी अपडेट केला आहे 👇
-TARGET_GROUP_ID = "-5202202128"  
+# 👇 तुझा नवीन फ्रेश टोकन इथे अपडेट केला आहे 👇
+TELEGRAM_TOKEN = "8577275461:AAFxaP6wBVTkpl4LrluRUCh0DRZwb4fejmw" 
+TARGET_GROUP_ID = "-5202202128"  # <--- तुझा बरोबर ग्रुप आयडी
 
 # 🔐 सिक्रेट पासवर्ड
 PASS_30S = "11111"   # ३० सेकंदाच्या गेमसाठी
@@ -166,13 +166,9 @@ def process_strategy(state, records):
         return True
 
     if state["last_processed_issue"] != latest_issue:
-        # =========================================================
-        # 🛡️ API CACHE FIX 
-        # =========================================================
         if state["last_processed_issue"].isdigit() and latest_issue.isdigit():
             if int(latest_issue) <= int(state["last_processed_issue"]):
                 return False  
-        # =========================================================
 
         bs_res_status = "-"
         state["stats"]["total_trades"] += 1

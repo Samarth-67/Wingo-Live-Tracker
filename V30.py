@@ -11,9 +11,9 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-# 👇 इथे BotFather कडून मिळालेला एकदम नवीन टोकन टाक 👇
+# 👇 तुझा नवीन टोकन इथे अपडेट केला आहे 👇
 TELEGRAM_TOKEN = "8577275461:AAF8lWPac3WCgbHp8XPvU_lO289oHcMdOE8" 
-TARGET_GROUP_ID = "-5202202128"  # <--- तुझा ग्रुप आयडी बरोबर आहे
+TARGET_GROUP_ID = "-5202202128"  # <--- तुझा ग्रुप आयडी
 
 # 🔐 सिक्रेट पासवर्ड
 PASS_30S = "11111"   # ३० सेकंदाच्या गेमसाठी
@@ -68,9 +68,9 @@ def telegram_listener():
                             if pwd == PASS_30S:
                                 state_30s["is_running"] = True
                                 state_30s["active_chat_id"] = chat_id
-                                send_telegram_message_direct(chat_id, f"✅ *[15-Round Pro Strategy] Activated! Live Prediction is ON.*")
+                                send_telegram_message_direct(chat_id, f"✅ *Bot Activated!*")
                             else:
-                                send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
+                                send_telegram_message_direct(chat_id, "❌ Wrong Password.")
                                 
                     # --- STOP COMMAND ---
                     elif text.startswith("/stop"):
@@ -79,41 +79,41 @@ def telegram_listener():
                             pwd = parts[1]
                             if pwd == PASS_30S:
                                 state_30s["is_running"] = False
-                                send_telegram_message_direct(chat_id, "🛑 *[15-Round Pro Strategy] Stopped Successfully!*")
+                                send_telegram_message_direct(chat_id, "🛑 *Bot Stopped!*")
                             else:
-                                send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
+                                send_telegram_message_direct(chat_id, "❌ Wrong Password.")
         except Exception:
             pass
         time.sleep(3)
 
+# 👇 टेलिग्राम मेसेज एकदम स्वच्छ (Clean) केला आहे 👇
 def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     target_chat_id = TARGET_GROUP_ID
     if not target_chat_id: return
 
-    game_name = state["name"]
-    text = f"🚀 *VSR {game_name} Pro 15-Cycle* 🚀\n\n"
+    text = ""
     
+    # १. मागील निकाल (फक्त WIN/FAIL दिसेल)
     if state["stats"]["total_trades"] > 0 and prev_bs_res:
-        text += f"🔄 *Last Trade Result:*\n"
-        if "SKIP" in prev_bs_res: text += f"📏 B/S: ⏸️ *SKIPPED (Waiting for Trend)*\n"
+        if "WIN" in prev_bs_res:
+            text += f"📊 *Last Result:* ✅ WIN\n\n"
+        elif "FAIL" in prev_bs_res:
+            text += f"📊 *Last Result:* ❌ FAIL\n\n"
         else:
-            text += f"📏 B/S: *{prev_bs_res}*\n"
-            if "WIN" in prev_bs_res: text += f"\n🔥🎉 *CONGRATS! WIN!* 🎉🔥\n"
-        text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
-        
-    text += f"🎟️ *New Issue:* {issue}\n"
-    
-    # १५ राऊंडची माहिती पाठवण्यासाठी
+            text += f"📊 *Last Result:* ⏸️ SKIP\n\n"
+            
+    # २. टोकन नंबर (Issue) आणि १५ राऊंडची सायकल (Round)
     cycle_step = ((state["stats"]["total_trades"]) % 15) + 1
-    text += f"🔄 *Cycle Step:* {cycle_step}/15\n\n"
     
+    text += f"🎟️ *Issue:* {issue}\n"
+    text += f"🔄 *Round:* {cycle_step}/15\n"
+    
+    # ३. पुढचे प्रेडिक्शन
     if state["bs_active"]:
-        bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
-        text += f"📏 *Prediction:* *{bs_pred_text}*\n"
-        text += f"🎯 *Level:* L{bs_level}\n\n"
+        bs_pred_text = "Big" if bs_pred == "Big" else "Small"
+        text += f"🎯 *Pred:* *{bs_pred_text}* (L{bs_level})\n"
     else:
-        text += f"📏 *Prediction:* ⏸️ *WAIT FOR PATTERN*\n"
-        text += f"⚠️ *(Pending Level: L{bs_level})*\n\n"
+        text += f"🎯 *Pred:* ⏸️ *WAIT* (L{bs_level})\n"
         
     send_telegram_message_direct(target_chat_id, text)
 
@@ -175,17 +175,16 @@ def process_strategy(state, records):
         
         if state["bs_active"]:
             bs_win = (state["bs_pred"] == latest_bs)
-            bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
             if bs_win:
                 state["stats"]["bs_win"] += 1
                 state["bs_level"] = 1 
                 state["bs_fails_in_row"] = 0 
-                bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
+                bs_res_status = "WIN"
             else:
                 state["stats"]["bs_fail"] += 1
                 state["bs_level"] += 1
                 state["bs_fails_in_row"] += 1 
-                bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
+                bs_res_status = "FAIL"
         else:
             state["stats"]["bs_skip"] += 1
             bs_res_status = "SKIP"

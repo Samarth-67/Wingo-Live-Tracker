@@ -11,9 +11,8 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-# 👇 तुझा नवीन फ्रेश टोकन इथे अपडेट केला आहे 👇
 TELEGRAM_TOKEN = "8577275461:AAFxaP6wBVTkpl4LrluRUCh0DRZwb4fejmw" 
-TARGET_GROUP_ID = "-5202202128"  # <--- तुझा बरोबर ग्रुप आयडी
+TARGET_GROUP_ID = "-5202202128"  # <--- तुझा ग्रुप आयडी
 
 # 🔐 सिक्रेट पासवर्ड
 PASS_30S = "11111"   # ३० सेकंदाच्या गेमसाठी
@@ -26,7 +25,7 @@ def create_state(name, interval):
         "last_processed_issue": None,
         "bs_pred": None, "bs_level": 1, "bs_active": True, "bs_fails_in_row": 0,
         
-        # --- 30-ROUND CYCLE VARIABLES ---
+        # --- 15-ROUND OPTIMIZED CYCLE VARIABLES ---
         "cycle_anchor": None, 
         # ---------------------------------------
         
@@ -68,7 +67,7 @@ def telegram_listener():
                             if pwd == PASS_30S:
                                 state_30s["is_running"] = True
                                 state_30s["active_chat_id"] = chat_id
-                                send_telegram_message_direct(chat_id, f"✅ *[30S Strategy] Activated! Live Prediction is ON.*")
+                                send_telegram_message_direct(chat_id, f"✅ *[15-Round Pro Strategy] Activated! Live Prediction is ON.*")
                             else:
                                 send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                                 
@@ -79,7 +78,7 @@ def telegram_listener():
                             pwd = parts[1]
                             if pwd == PASS_30S:
                                 state_30s["is_running"] = False
-                                send_telegram_message_direct(chat_id, "🛑 *[30S Strategy] Stopped Successfully!*")
+                                send_telegram_message_direct(chat_id, "🛑 *[15-Round Pro Strategy] Stopped Successfully!*")
                             else:
                                 send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
         except Exception:
@@ -91,7 +90,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     if not target_chat_id: return
 
     game_name = state["name"]
-    text = f"🚀 *VSR {game_name} Master Cycle* 🚀\n\n"
+    text = f"🚀 *VSR {game_name} Pro 15-Cycle* 🚀\n\n"
     
     if state["stats"]["total_trades"] > 0 and prev_bs_res:
         text += f"🔄 *Last Trade Result:*\n"
@@ -103,9 +102,9 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         
     text += f"🎟️ *New Issue:* {issue}\n"
     
-    # ३० राऊंडची माहिती पाठवण्यासाठी
-    cycle_step = ((state["stats"]["total_trades"]) % 30) + 1
-    text += f"🔄 *Cycle Step:* {cycle_step}/30\n\n"
+    # १५ राऊंडची माहिती पाठवण्यासाठी
+    cycle_step = ((state["stats"]["total_trades"]) % 15) + 1
+    text += f"🔄 *Cycle Step:* {cycle_step}/15\n\n"
     
     if state["bs_active"]:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
@@ -166,9 +165,13 @@ def process_strategy(state, records):
         return True
 
     if state["last_processed_issue"] != latest_issue:
+        # =========================================================
+        # 🛡️ API CACHE FIX 
+        # =========================================================
         if state["last_processed_issue"].isdigit() and latest_issue.isdigit():
             if int(latest_issue) <= int(state["last_processed_issue"]):
                 return False  
+        # =========================================================
 
         bs_res_status = "-"
         state["stats"]["total_trades"] += 1
@@ -205,30 +208,30 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 STRATEGY LOGIC (30-ROUND MASTER CYCLE) 🚀
+        # 🚀 STRATEGY LOGIC (15-ROUND OPTIMIZED CYCLE) 🚀
         # =======================================================
-        cycle_index = (state["stats"]["total_trades"] - 1) % 30
+        cycle_index = (state["stats"]["total_trades"] - 1) % 15  # 0 ते 14 पर्यंत इंडेक्स
 
-        # जेव्हा चक्राची सुरुवात होते, तेव्हा anchor सेट करा
+        # जेव्हा नवीन १५ राऊंड्सचे चक्र सुरू होते, तेव्हा anchor सेट करा
         if cycle_index == 0:
             state["cycle_anchor"] = latest_bs  
 
-        # जर cycle_anchor सेट नसेल, तर लेटेस्ट रिझल्ट घ्या
         if not state["cycle_anchor"]:
             state["cycle_anchor"] = latest_bs
 
         anchor = state["cycle_anchor"]
         opp = "Small" if anchor == "Big" else "Big"
 
+        # ५-५ राऊंड्सचे ३ पॉवरफुल ब्लॉक्स मिळून १५ राऊंड्सची रचना
         pattern = [
-            # ब्लॉक १ (राऊंड १ ते १०): १ सेम, १ विरुद्ध (1 Big, 1 Small)
-            anchor, opp, anchor, opp, anchor, opp, anchor, opp, anchor, opp,
+            # ब्लॉक १ (राऊंड १ ते ५): १-१ अल्टरनेटिंग (Alternating)
+            anchor, opp, anchor, opp, anchor,
             
-            # ब्लॉक २ (राऊंड ११ ते २०): २ सेम, २ विरुद्ध (2 Big, 2 Small)
-            anchor, anchor, opp, opp, anchor, anchor, opp, opp, anchor, anchor,
+            # ब्लॉक २ (राऊंड ६ ते १०): २-२ जोड्या आणि बदल (Pairs)
+            opp, opp, anchor, anchor, opp,
             
-            # ब्लॉक ३ (राऊंड २१ ते ३०): ३ सेम, ३ विरुद्ध (3 Big, 3 Small)
-            anchor, anchor, anchor, opp, opp, opp, anchor, anchor, anchor, opp
+            # ब्लॉक ३ (राऊंड ११ ते १५): नियंत्रित ट्रेंड आणि रिव्हर्सल (3-2 Mix)
+            anchor, anchor, anchor, opp, opp
         ]
 
         # पुढच्या राऊंडचे prediction पॅटर्न मधून घेणे
@@ -257,10 +260,10 @@ def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
     bs_color = "dark_orange" if state["bs_pred"] == "Big" else "bright_blue"
     
-    cycle_step = ((state["stats"]["total_trades"]) % 30) + 1
+    cycle_step = ((state["stats"]["total_trades"]) % 15) + 1
     
     ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})" if state["bs_active"] else f"[yellow]WAIT[/] (Pending L{state['bs_level']})"
-    ui_text += f" [bold magenta](Step: {cycle_step}/30)[/]"
+    ui_text += f" [bold magenta](Step: {cycle_step}/15)[/]"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
@@ -285,7 +288,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S BOT (30-Round Master Cycle Strategy)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S BOT (15-Round Pro Strategy)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

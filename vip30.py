@@ -11,7 +11,7 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-TELEGRAM_TOKEN = "7706219157:AAF8ngqGeIgapjXlwMbk4cizIrG0NasUg7w" 
+TELEGRAM_TOKEN = "8813447942:AAFPBVlFoJnRNBKvCywTx7gSEg8EckzKFDg" 
 TARGET_GROUP_ID = "-1004318545622"  # <--- ३० सेकंदाच्या चॅनेल/ग्रुपचा आयडी
 
 # 🔐 सिक्रेट पासवर्ड

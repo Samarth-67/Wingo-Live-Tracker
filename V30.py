@@ -11,8 +11,9 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-TELEGRAM_TOKEN = "8577275461:AAFxaP6wBVTkpl4LrluRUCh0DRZwb4fejmw" 
-TARGET_GROUP_ID = "-5202202128"  # <--- तुझा ग्रुप आयडी
+# 👇 इथे BotFather कडून मिळालेला एकदम नवीन टोकन टाक 👇
+TELEGRAM_TOKEN = "8577275461:AAF8lWPac3WCgbHp8XPvU_lO289oHcMdOE8" 
+TARGET_GROUP_ID = "-5202202128"  # <--- तुझा ग्रुप आयडी बरोबर आहे
 
 # 🔐 सिक्रेट पासवर्ड
 PASS_30S = "11111"   # ३० सेकंदाच्या गेमसाठी
@@ -165,18 +166,13 @@ def process_strategy(state, records):
         return True
 
     if state["last_processed_issue"] != latest_issue:
-        # =========================================================
-        # 🛡️ API CACHE FIX 
-        # =========================================================
         if state["last_processed_issue"].isdigit() and latest_issue.isdigit():
             if int(latest_issue) <= int(state["last_processed_issue"]):
                 return False  
-        # =========================================================
 
         bs_res_status = "-"
         state["stats"]["total_trades"] += 1
         
-        # --- आधी जुन्या ट्रेडचा निकाल चेक करणे ---
         if state["bs_active"]:
             bs_win = (state["bs_pred"] == latest_bs)
             bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
@@ -210,9 +206,8 @@ def process_strategy(state, records):
         # =======================================================
         # 🚀 STRATEGY LOGIC (15-ROUND OPTIMIZED CYCLE) 🚀
         # =======================================================
-        cycle_index = (state["stats"]["total_trades"] - 1) % 15  # 0 ते 14 पर्यंत इंडेक्स
+        cycle_index = (state["stats"]["total_trades"] - 1) % 15  
 
-        # जेव्हा नवीन १५ राऊंड्सचे चक्र सुरू होते, तेव्हा anchor सेट करा
         if cycle_index == 0:
             state["cycle_anchor"] = latest_bs  
 
@@ -222,19 +217,12 @@ def process_strategy(state, records):
         anchor = state["cycle_anchor"]
         opp = "Small" if anchor == "Big" else "Big"
 
-        # ५-५ राऊंड्सचे ३ पॉवरफुल ब्लॉक्स मिळून १५ राऊंड्सची रचना
         pattern = [
-            # ब्लॉक १ (राऊंड १ ते ५): १-१ अल्टरनेटिंग (Alternating)
             anchor, opp, anchor, opp, anchor,
-            
-            # ब्लॉक २ (राऊंड ६ ते १०): २-२ जोड्या आणि बदल (Pairs)
             opp, opp, anchor, anchor, opp,
-            
-            # ब्लॉक ३ (राऊंड ११ ते १५): नियंत्रित ट्रेंड आणि रिव्हर्सल (3-2 Mix)
             anchor, anchor, anchor, opp, opp
         ]
 
-        # पुढच्या राऊंडचे prediction पॅटर्न मधून घेणे
         state["bs_pred"] = pattern[cycle_index]
         # =======================================================
 

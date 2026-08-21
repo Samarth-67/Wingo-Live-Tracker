@@ -209,13 +209,13 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> 2-CIRCLE MODE) 🚀
+        # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> ACTUAL RESULT 2-CIRCLE MODE) 🚀
         # =======================================================
         if state["mode"] == "normal":
             if state["bs_level"] >= 4: 
                 state["mode"] = "2-circle"
-                # Level 3 चे जे prediction होते तेच पुढे L4 आणि L5 साठी वापरायचे
-                state["circle_current_target"] = state["bs_pred"] 
+                # 🎯 बदल: Level 3 चा जो खरा निकाल (latest_bs) आला, तोच पुढे कॅरी फॉरवर्ड होईल
+                state["circle_current_target"] = latest_bs 
                 state["circle_count"] = 1
                 state["bs_pred"] = state["circle_current_target"]
             else:
@@ -223,7 +223,6 @@ def process_strategy(state, records):
                 
         elif state["mode"] == "2-circle":
             state["circle_count"] += 1
-            # २ वेळा तोच रंग लावला की त्यानंतर रंग बदलणे (उदा. L4, L5 नंतर L6 आणि L7 ला रंग बदलणार)
             if state["circle_count"] > 2:
                 state["circle_current_target"] = "Small" if state["circle_current_target"] == "Big" else "Big"
                 state["circle_count"] = 1

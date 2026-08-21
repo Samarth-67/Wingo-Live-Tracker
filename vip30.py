@@ -11,8 +11,8 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-TELEGRAM_TOKEN = "8660932571:AAHpJ4pE7dOzK3YysJ68eiP1D9Jn7nlNpxc" 
-TARGET_GROUP_ID = "-1004318545622"  # <--- नवीन ३० सेकंदाच्या चॅनेल/ग्रुपचा आयडी
+TELEGRAM_TOKEN = "8577275461:AAFxaP6wBVTkpl4LrluRUCh0DRZwb4fejmw" 
+TARGET_GROUP_ID = "-5202202128"  # <--- चॅनेल/ग्रुपचा आयडी
 
 # 🔐 सिक्रेट पासवर्ड
 PASS_30S = "11111"   # ३० सेकंदाच्या गेमसाठी
@@ -25,7 +25,7 @@ def create_state(name, interval):
         "last_processed_issue": None,
         "bs_pred": None, "bs_level": 1, "bs_active": True, "bs_fails_in_row": 0,
         
-        # --- 3-CIRCLE STRATEGY VARIABLES ---
+        # --- 2-CIRCLE STRATEGY VARIABLES ---
         "mode": "normal",
         "circle_current_target": None, 
         "circle_count": 0,
@@ -34,7 +34,7 @@ def create_state(name, interval):
         "history": [],
         "stats": {"bs_win": 0, "bs_fail": 0, "bs_skip": 0, "total_trades": 0},
         "is_running": False,       
-        "active_chat_id": None,    
+        "active_chat_id": None,   
         "live_records": []
     }
 
@@ -107,7 +107,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     if state["bs_active"]:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
         text += f"📏 *Prediction:* *{bs_pred_text}*\n"
-        mode_text = "(🔄 3-Circle Mode)" if state["mode"] == "3-circle" else ""
+        mode_text = "(🔄 2-Circle Mode)" if state["mode"] == "2-circle" else ""
         text += f"🎯 *Level:* L{bs_level} {mode_text}\n\n"
     else:
         text += f"📏 *Prediction:* ⏸️ *WAIT FOR PATTERN*\n"
@@ -200,20 +200,20 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> 3-CIRCLE MODE) 🚀
+        # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> 2-CIRCLE MODE) 🚀
         # =======================================================
         if state["mode"] == "normal":
             if state["bs_level"] >= 4: 
-                state["mode"] = "3-circle"
-                state["circle_current_target"] = state["bs_pred"]
+                state["mode"] = "2-circle"
+                state["circle_current_target"] = latest_bs
                 state["circle_count"] = 1
                 state["bs_pred"] = state["circle_current_target"]
             else:
                 state["bs_pred"] = latest_bs
                 
-        elif state["mode"] == "3-circle":
+        elif state["mode"] == "2-circle":
             state["circle_count"] += 1
-            if state["circle_count"] > 3:
+            if state["circle_count"] > 2:
                 state["circle_current_target"] = "Small" if state["circle_current_target"] == "Big" else "Big"
                 state["circle_count"] = 1
             state["bs_pred"] = state["circle_current_target"]
@@ -243,8 +243,8 @@ def render_game_panel(state):
     
     ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})" if state["bs_active"] else f"[yellow]WAIT[/] (Pending L{state['bs_level']})"
     
-    if state["mode"] == "3-circle":
-        ui_text += " [bold magenta]🔄 3-Circle[/]"
+    if state["mode"] == "2-circle":
+        ui_text += " [bold magenta]🔄 2-Circle[/]"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     

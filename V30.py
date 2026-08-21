@@ -12,7 +12,8 @@ console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
 TELEGRAM_TOKEN = "8660932571:AAHpJ4pE7dOzK3YysJ68eiP1D9Jn7nlNpxc" 
-TARGET_GROUP_ID = "-1004318545622"  # <--- नवीन ३० सेकंदाच्या चॅनेल/ग्रुपचा आयडी
+# 👇 इथे तुझा नवीन ग्रुप आयडी अपडेट केला आहे 👇
+TARGET_GROUP_ID = "-5202202128"  
 
 # 🔐 सिक्रेट पासवर्ड
 PASS_30S = "11111"   # ३० सेकंदाच्या गेमसाठी
@@ -24,17 +25,13 @@ def create_state(name, interval):
         "interval": interval,
         "last_processed_issue": None,
         "bs_pred": None, "bs_level": 1, "bs_active": True, "bs_fails_in_row": 0,
-        
-        # --- NEW 30-ROUND CYCLE STRATEGY VARIABLES ---
-        "cycle_anchor": None, # सायकल सुरु होताना जो निकाल येईल (Big/Small) तो सेव्ह करण्यासाठी
-        # ---------------------------------------
-        
+        "cycle_anchor": None, 
         "history": [],
         "stats": {"bs_win": 0, "bs_fail": 0, "bs_skip": 0, "total_trades": 0},
         "is_running": False,       
         "active_chat_id": None,   
         "live_records": [],
-        "last_error": None  # <--- एरर स्क्रीनवर दाखवण्यासाठी नवीन सेटिंग
+        "last_error": None  
     }
 
 state_30s = create_state("WinGo 30S", "30S")
@@ -44,13 +41,13 @@ def send_telegram_message_direct(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
         response = requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
-        # जर मेसेज गेला नाही, तर स्क्रीनवर एरर दाखवा
         if response.status_code != 200:
-            state_30s["last_error"] = f"TG Error: {response.text}"
+            state_30s["last_error"] = f"Send Error: {response.text}"
         else:
-            state_30s["last_error"] = None # यशस्वी झाल्यावर एरर पुसून टाका
+            if "Send Error" in str(state_30s["last_error"]):
+                state_30s["last_error"] = None
     except Exception as e:
-        state_30s["last_error"] = f"Net Error: {str(e)}"
+        state_30s["last_error"] = f"Send Exception: {str(e)}"
 
 def telegram_listener():
     offset = 0
@@ -58,37 +55,36 @@ def telegram_listener():
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={offset}&timeout=2"
             response = requests.get(url, timeout=5)
+            
             if response.status_code == 200:
+                if "Listen Error" in str(state_30s["last_error"]):
+                    state_30s["last_error"] = None 
+                    
                 for result in response.json().get("result", []):
                     offset = result["update_id"] + 1
                     message = result.get("message", {})
                     chat_id = message.get("chat", {}).get("id")
                     text = message.get("text", "").strip()
 
-                    # --- START COMMAND ---
                     if text.startswith("/signal"):
                         parts = text.split()
-                        if len(parts) == 2:
-                            pwd = parts[1]
-                            if pwd == PASS_30S:
-                                state_30s["is_running"] = True
-                                state_30s["active_chat_id"] = chat_id
-                                send_telegram_message_direct(chat_id, f"✅ *[30S Strategy] Activated! Live Prediction is ON.*")
-                            else:
-                                send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
+                        if len(parts) == 2 and parts[1] == PASS_30S:
+                            state_30s["is_running"] = True
+                            state_30s["active_chat_id"] = chat_id
+                            send_telegram_message_direct(chat_id, f"✅ *[30S Strategy] Activated! Live Prediction is ON.*")
+                        else:
+                            send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                                 
-                    # --- STOP COMMAND ---
                     elif text.startswith("/stop"):
                         parts = text.split()
-                        if len(parts) == 2:
-                            pwd = parts[1]
-                            if pwd == PASS_30S:
-                                state_30s["is_running"] = False
-                                send_telegram_message_direct(chat_id, "🛑 *[30S Strategy] Stopped Successfully!*")
-                            else:
-                                send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
-        except Exception:
-            pass
+                        if len(parts) == 2 and parts[1] == PASS_30S:
+                            state_30s["is_running"] = False
+                            send_telegram_message_direct(chat_id, "🛑 *[30S Strategy] Stopped Successfully!*")
+            else:
+                state_30s["last_error"] = f"Listen Error: {response.text}"
+                
+        except Exception as e:
+            state_30s["last_error"] = f"Listen Exception: {str(e)}"
         time.sleep(3)
 
 def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
@@ -108,7 +104,6 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         
     text += f"🎟️ *New Issue:* {issue}\n"
     
-    # ३० राऊंडची माहिती पाठवण्यासाठी
     cycle_step = ((state["stats"]["total_trades"]) % 30) + 1
     text += f"🔄 *Cycle Step:* {cycle_step}/30\n\n"
     
@@ -171,18 +166,13 @@ def process_strategy(state, records):
         return True
 
     if state["last_processed_issue"] != latest_issue:
-        # =========================================================
-        # 🛡️ API CACHE FIX 
-        # =========================================================
         if state["last_processed_issue"].isdigit() and latest_issue.isdigit():
             if int(latest_issue) <= int(state["last_processed_issue"]):
                 return False  
-        # =========================================================
 
         bs_res_status = "-"
         state["stats"]["total_trades"] += 1
         
-        # --- आधी जुन्या ट्रेडचा निकाल चेक करणे ---
         if state["bs_active"]:
             bs_win = (state["bs_pred"] == latest_bs)
             bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
@@ -216,32 +206,23 @@ def process_strategy(state, records):
         # =======================================================
         # 🚀 STRATEGY LOGIC (30-ROUND MASTER CYCLE) 🚀
         # =======================================================
-        cycle_index = (state["stats"]["total_trades"] - 1) % 30  # 0 ते 29 पर्यंत इंडेक्स चालेल
+        cycle_index = (state["stats"]["total_trades"] - 1) % 30
 
-        # जेव्हा चक्राची सुरुवात होते (राऊंड 1, 31, 61...), तेव्हा anchor सेट करा
         if cycle_index == 0:
             state["cycle_anchor"] = latest_bs  
 
-        # जर cycle_anchor सेट नसेल (बोट मध्येच सुरु केला असेल), तर लेटेस्ट रिझल्ट घ्या
         if not state["cycle_anchor"]:
             state["cycle_anchor"] = latest_bs
 
         anchor = state["cycle_anchor"]
         opp = "Small" if anchor == "Big" else "Big"
 
-        # ३० राऊंड्सची नवीन रचना (New 30-Round Pattern)
         pattern = [
-            # ब्लॉक १ (राऊंड १ ते १०): १ सेम, १ विरुद्ध (1 Big, 1 Small)
             anchor, opp, anchor, opp, anchor, opp, anchor, opp, anchor, opp,
-            
-            # ब्लॉक २ (राऊंड ११ ते २०): २ सेम, २ विरुद्ध (2 Big, 2 Small)
             anchor, anchor, opp, opp, anchor, anchor, opp, opp, anchor, anchor,
-            
-            # ब्लॉक ३ (राऊंड २१ ते ३०): ३ सेम, ३ विरुद्ध (3 Big, 3 Small)
             anchor, anchor, anchor, opp, opp, opp, anchor, anchor, anchor, opp
         ]
 
-        # पुढच्या राऊंडचे prediction पॅटर्न मधून घेणे
         state["bs_pred"] = pattern[cycle_index]
         # =======================================================
 
@@ -277,9 +258,8 @@ def render_game_panel(state):
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n📏 [bold]Pred:[/] {ui_text}\n"
     panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
     
-    # 🔴 जर टेलिग्राम एरर असेल, तर इथे लाल अक्षरात दिसेल
     if state.get("last_error"):
-        panel_text += f"⚠️ [bold red]Telegram Error:[/] {state['last_error']}\n\n"
+        panel_text += f"⚠️ [bold red]Error:[/] {state['last_error']}\n\n"
         
     panel_text += f"📊 [bold]W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/] | [bold]S:[/] [yellow]{state['stats']['bs_skip']}[/]\n"
     

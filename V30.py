@@ -33,7 +33,8 @@ def create_state(name, interval):
         "stats": {"bs_win": 0, "bs_fail": 0, "bs_skip": 0, "total_trades": 0},
         "is_running": False,       
         "active_chat_id": None,   
-        "live_records": []
+        "live_records": [],
+        "last_error": None  # <--- एरर स्क्रीनवर दाखवण्यासाठी नवीन सेटिंग
     }
 
 state_30s = create_state("WinGo 30S", "30S")
@@ -42,9 +43,14 @@ def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
-        requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
-    except Exception:
-        pass
+        response = requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
+        # जर मेसेज गेला नाही, तर स्क्रीनवर एरर दाखवा
+        if response.status_code != 200:
+            state_30s["last_error"] = f"TG Error: {response.text}"
+        else:
+            state_30s["last_error"] = None # यशस्वी झाल्यावर एरर पुसून टाका
+    except Exception as e:
+        state_30s["last_error"] = f"Net Error: {str(e)}"
 
 def telegram_listener():
     offset = 0
@@ -270,6 +276,11 @@ def render_game_panel(state):
     
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n📏 [bold]Pred:[/] {ui_text}\n"
     panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
+    
+    # 🔴 जर टेलिग्राम एरर असेल, तर इथे लाल अक्षरात दिसेल
+    if state.get("last_error"):
+        panel_text += f"⚠️ [bold red]Telegram Error:[/] {state['last_error']}\n\n"
+        
     panel_text += f"📊 [bold]W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/] | [bold]S:[/] [yellow]{state['stats']['bs_skip']}[/]\n"
     
     hist_table = Table(show_header=False, width=40)

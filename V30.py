@@ -25,10 +25,10 @@ def create_state(name, interval):
         "last_processed_issue": None,
         "bs_pred": None, "bs_level": 1, "bs_active": True, "bs_fails_in_row": 0,
         
-        # --- 3-COMBINATION STRATEGY VARIABLES ---
+        # --- CUSTOM PATTERN VARIABLES ---
         "mode": "normal",
-        "circle_current_target": None, 
-        "circle_count": 0,
+        "circle_target_a": None, 
+        "circle_target_b": None,
         # ---------------------------------------
         
         # --- ZONE & REBOUND SIMULATOR VARIABLES ---
@@ -74,7 +74,7 @@ def telegram_listener():
                             if pwd == PASS_30S:
                                 state_30s["is_running"] = True
                                 state_30s["active_chat_id"] = chat_id
-                                send_telegram_message_direct(chat_id, f"✅ *[30S Strategy] Activated! Continuous Mode Running.*")
+                                send_telegram_message_direct(chat_id, f"✅ *[30S Strategy] Activated! Live Prediction is ON.*")
                             else:
                                 send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                                 
@@ -113,10 +113,8 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     if state["bs_active"]:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
         mode_text = ""
-        if state["mode"] == "2-circle":
-            mode_text = "(🔄 2-Circle Mode)"
-        elif state["mode"] == "flip":
-            mode_text = "(🔁 Flip Mode)"
+        if state["mode"] == "custom-pattern":
+            mode_text = "(🔄 Pattern Mode)"
             
         text += f"📏 *B/S Pred:* {bs_pred_text} (L{bs_level}) {mode_text}\n\n"
     else:
@@ -220,7 +218,6 @@ def process_strategy(state, records):
                 state["bs_level"] = 1 
                 state["bs_fails_in_row"] = 0 
                 state["mode"] = "normal"  
-                state["circle_count"] = 0
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
             else:
                 state["stats"]["bs_fail"] += 1
@@ -252,32 +249,34 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 3-COMBINATION STRATEGY LOGIC 🚀
+        # 🚀 L4 TO L10 CUSTOM PATTERN LOGIC 🚀
         # =======================================================
         if state["mode"] == "normal":
             if state["bs_level"] >= 4: 
-                state["mode"] = "2-circle"
-                state["circle_current_target"] = latest_bs
-                state["circle_count"] = 1
-                state["bs_pred"] = state["circle_current_target"]
+                state["mode"] = "custom-pattern"
+                state["circle_target_a"] = latest_bs
+                state["circle_target_b"] = "Small" if latest_bs == "Big" else "Big"
+                state["bs_pred"] = state["circle_target_a"]
             else:
                 state["bs_pred"] = latest_bs
                 
-        elif state["mode"] == "2-circle":
-            if state["bs_level"] >= 7:
-                state["mode"] = "flip"
-                # L6 फेल गेल्यावर लगेच विरुद्ध (Flip) प्रेडिक्शन देणे
-                state["bs_pred"] = "Small" if state["bs_pred"] == "Big" else "Big"
+        elif state["mode"] == "custom-pattern":
+            lvl = state["bs_level"]
+            
+            if lvl in [4, 5]:
+                # L4 आणि L5 ला पहिला टार्गेट
+                state["bs_pred"] = state["circle_target_a"]
+            elif lvl in [6, 7, 8]:
+                # L6, L7, L8 ला विरुद्ध टार्गेट (सलग ३ वेळा)
+                state["bs_pred"] = state["circle_target_b"]
+            elif lvl in [9, 10]:
+                # L9 आणि L10 ला पुन्हा पहिला टार्गेट
+                state["bs_pred"] = state["circle_target_a"]
             else:
-                state["circle_count"] += 1
-                if state["circle_count"] > 2:
-                    state["circle_current_target"] = "Small" if state["circle_current_target"] == "Big" else "Big"
-                    state["circle_count"] = 1
-                state["bs_pred"] = state["circle_current_target"]
-                
-        elif state["mode"] == "flip":
-            # L7, L8 आणि त्यापुढे प्रत्येक वेळी विरुद्ध दिशा (Flip)
-            state["bs_pred"] = "Small" if state["bs_pred"] == "Big" else "Big"
+                # जर L10 च्या पुढे (L11) गेला, तर स्टॉप-लॉस म्हणून रिसेट करेल
+                state["bs_level"] = 1
+                state["mode"] = "normal"
+                state["bs_pred"] = latest_bs
         # =======================================================
 
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
@@ -304,10 +303,8 @@ def render_game_panel(state):
     
     ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})" if state["bs_active"] else f"[yellow]WAIT[/] (Pending L{state['bs_level']})"
     
-    if state["mode"] == "2-circle":
-        ui_text += " [bold magenta]🔄 2-Circle[/]"
-    elif state["mode"] == "flip":
-        ui_text += " [bold yellow]🔁 Flip[/]"
+    if state["mode"] == "custom-pattern":
+        ui_text += " [bold magenta]🔄 Pattern[/]"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
@@ -336,7 +333,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S BOT (3-Combination Strategy: Trend -> 2-Circle -> Flip)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S BOT (Custom Pattern Logic)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

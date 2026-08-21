@@ -12,7 +12,7 @@ console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
 TELEGRAM_TOKEN = "8660932571:AAHpJ4pE7dOzK3YysJ68eiP1D9Jn7nlNpxc" 
-TARGET_GROUP_ID = "-1004318545622"  # <--- नवीन ३० सेकंदाच्या चॅनेल/ग्रुपचा आयडी
+TARGET_GROUP_ID = "-1004318545622"  # <--- ३० सेकंदाच्या चॅनेल/ग्रुपचा आयडी
 
 # 🔐 सिक्रेट पासवर्ड
 PASS_30S = "11111"   # ३० सेकंदाच्या गेमसाठी
@@ -107,8 +107,8 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     if state["bs_active"]:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
         
-        # 👇 नवीन अपडेट ओळखण्यासाठी इथले नाव बदलले आहे 👇
-        mode_text = "(🔄 L3 Result Mode)" if state["mode"] == "2-circle" else ""
+        # 👇 जर तुला हा मेसेज आला, तर समजून जा नवीन कोड बरोबर काम करत आहे! 👇
+        mode_text = "(🔄 L3 Target Mode)" if state["mode"] == "2-circle" else ""
         
         text += f"📏 *Prediction:* *{bs_pred_text}*\n"
         text += f"🎯 *Level:* L{bs_level} {mode_text}\n\n"
@@ -179,8 +179,6 @@ def process_strategy(state, records):
         state["stats"]["total_trades"] += 1
         
         # --- आधी जुन्या ट्रेडचा निकाल चेक करणे ---
-        failed_prediction = state["bs_pred"] # जुने प्रेडिक्शन सुरक्षित ठेवले
-        
         if state["bs_active"]:
             bs_win = (state["bs_pred"] == latest_bs)
             bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
@@ -199,7 +197,6 @@ def process_strategy(state, records):
         else:
             state["stats"]["bs_skip"] += 1
             bs_res_status = "SKIP"
-            failed_prediction = None
             if latest_bs == prev_bs:
                 state["bs_active"] = True
                 state["bs_fails_in_row"] = 0 
@@ -215,17 +212,15 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> ACTUAL RESULT 2-CIRCLE MODE) 🚀
+        # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> L3 ACTUAL RESULT 2-CIRCLE) 🚀
         # =======================================================
         if state["mode"] == "normal":
             if state["bs_level"] >= 4: 
                 state["mode"] = "2-circle"
                 
-                # 🎯 बुलेटप्रूफ लॉजिक: जर L3 ला Small प्रेडिक्शन दिलं होतं आणि ते फेल झालं, 
-                # तर याचा अर्थ खरा निकाल Big आला आहे. आपण तोच विरुद्ध निकाल टार्गेट म्हणून घेणार.
-                actual_result = "Small" if failed_prediction == "Big" else "Big"
-                
-                state["circle_current_target"] = actual_result 
+                # 🎯 बुलेटप्रूफ लॉजिक: latest_bs म्हणजेच फेल झालेल्या L3 चा 'खरा निकाल'. 
+                # तोच आपण L4 आणि L5 साठी टार्गेट म्हणून कॅरी फॉरवर्ड करत आहोत!
+                state["circle_current_target"] = latest_bs 
                 state["circle_count"] = 1
                 state["bs_pred"] = state["circle_current_target"]
             else:
@@ -264,8 +259,7 @@ def render_game_panel(state):
     ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})" if state["bs_active"] else f"[yellow]WAIT[/] (Pending L{state['bs_level']})"
     
     if state["mode"] == "2-circle":
-        # 👇 इथे सुद्धा नाव बदलले आहे 👇
-        ui_text += " [bold magenta]🔄 L3 Result Mode[/]"
+        ui_text += " [bold magenta]🔄 L3 Target Mode[/]"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
@@ -290,7 +284,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S BOT (Trend -> L3 Result Strategy)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S BOT (Trend -> L3 Target Strategy)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

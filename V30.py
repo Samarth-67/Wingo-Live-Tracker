@@ -11,8 +11,8 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-TELEGRAM_TOKEN = "8577275461:AAFxaP6wBVTkpl4LrluRUCh0DRZwb4fejmw" 
-TARGET_GROUP_ID = "-5202202128"  # <--- चॅनेल/ग्रुपचा आयडी
+TELEGRAM_TOKEN = "8660932571:AAHpJ4pE7dOzK3YysJ68eiP1D9Jn7nlNpxc" 
+TARGET_GROUP_ID = "-1004318545622"  # <--- नवीन ३० सेकंदाच्या चॅनेल/ग्रुपचा आयडी
 
 # 🔐 सिक्रेट पासवर्ड
 PASS_30S = "11111"   # ३० सेकंदाच्या गेमसाठी
@@ -25,15 +25,10 @@ def create_state(name, interval):
         "last_processed_issue": None,
         "bs_pred": None, "bs_level": 1, "bs_active": True, "bs_fails_in_row": 0,
         
-        # --- CUSTOM PATTERN VARIABLES ---
+        # --- 2-CIRCLE STRATEGY VARIABLES ---
         "mode": "normal",
-        "circle_target_a": None, 
-        "circle_target_b": None,
-        # ---------------------------------------
-        
-        # --- ZONE & REBOUND SIMULATOR VARIABLES ---
-        "market_zone": "🟢 SAFE ZONE",
-        "rebound_history": [],  # पास्ट १० रिबाउंड्सची लिस्ट
+        "circle_current_target": None, 
+        "circle_count": 0,
         # ---------------------------------------
         
         "history": [],
@@ -100,36 +95,24 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     text = f"🚀 *VSR {game_name} Trend Follower* 🚀\n\n"
     
     if state["stats"]["total_trades"] > 0 and prev_bs_res:
-        if "SKIP" in prev_bs_res: 
-            text += f"📏 B/S: ⏸️ *SKIPPED (Waiting for Trend)*\n"
+        text += f"🔄 *Last Trade Result:*\n"
+        if "SKIP" in prev_bs_res: text += f"📏 B/S: ⏸️ *SKIPPED (Waiting for Trend)*\n"
         else:
             text += f"📏 B/S: *{prev_bs_res}*\n"
-            if "WIN" in prev_bs_res: 
-                text += f"\n🔥🎉 *CONGRATS! WIN!* 🎉🔥\n"
+            if "WIN" in prev_bs_res: text += f"\n🔥🎉 *CONGRATS! WIN!* 🎉🔥\n"
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
         
-    text += f"🎟️ *Prediction For Ticket:* {issue}\n\n"
+    text += f"🎟️ *New Issue:* {issue}\n\n"
     
     if state["bs_active"]:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
-        mode_text = ""
-        if state["mode"] == "custom-pattern":
-            mode_text = "(🔄 Pattern Mode)"
-            
-        text += f"📏 *B/S Pred:* {bs_pred_text} (L{bs_level}) {mode_text}\n\n"
+        text += f"📏 *Prediction:* *{bs_pred_text}*\n"
+        mode_text = "(🔄 2-Circle Mode)" if state["mode"] == "2-circle" else ""
+        text += f"🎯 *Level:* L{bs_level} {mode_text}\n\n"
     else:
         text += f"📏 *Prediction:* ⏸️ *WAIT FOR PATTERN*\n"
         text += f"⚠️ *(Pending Level: L{bs_level})*\n\n"
         
-    # =========================================================
-    # ⚠️ SIMULATOR REPORT (Zone & Past Rebounds) ⚠️
-    # =========================================================
-    text += f"➖➖ *SIMULATOR REPORT* ➖➖\n"
-    text += f"🌀 *Zone:* {state['market_zone']}\n"
-    text += f"📈 *Past 10 Rebounds:* {state['rebound_history']}\n"
-    text += f"➖➖➖➖➖➖➖➖➖➖➖➖\n"
-    # =========================================================
-    
     send_telegram_message_direct(target_chat_id, text)
 
 def fetch_data(url):
@@ -182,54 +165,31 @@ def process_strategy(state, records):
 
     if state["last_processed_issue"] != latest_issue:
         # =========================================================
-        # 🛡️ API CACHE FIX (डबल मेसेज येणे कायमचे बंद करण्यासाठी) 🛡️
+        # 🛡️ API CACHE FIX 
         # =========================================================
         if state["last_processed_issue"].isdigit() and latest_issue.isdigit():
             if int(latest_issue) <= int(state["last_processed_issue"]):
-                return False  # जुना किंवा सेम तिकीट नंबर आल्यास दुर्लक्ष करेल
+                return False  
         # =========================================================
 
         bs_res_status = "-"
         state["stats"]["total_trades"] += 1
         
+        # --- आधी जुन्या ट्रेडचा निकाल चेक करणे ---
         if state["bs_active"]:
             bs_win = (state["bs_pred"] == latest_bs)
             bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
             if bs_win:
                 state["stats"]["bs_win"] += 1
-                reached_lvl = state["bs_level"]
-                
-                # पास्ट रिबाउंड्स सेव्ह करणे (जास्तीत जास्त १०)
-                state["rebound_history"].append(reached_lvl)
-                if len(state["rebound_history"]) > 10:
-                    state["rebound_history"].pop(0)
-                
-                # =========================================================
-                # 🚀 EXACT ZONE LOGIC (State Machine) 🚀
-                # =========================================================
-                if 1 <= reached_lvl <= 4:
-                    state["market_zone"] = "🟢 SAFE ZONE"
-                elif 5 <= reached_lvl <= 6:
-                    state["market_zone"] = f"⚠️ DIVERGENCE ZONE (Rebound at L{reached_lvl})"
-                elif reached_lvl >= 7:
-                    state["market_zone"] = f"🔴 DANGER ZONE (Rebound at L{reached_lvl})"
-                # =========================================================
-                
                 state["bs_level"] = 1 
                 state["bs_fails_in_row"] = 0 
-                state["mode"] = "normal"  
+                state["mode"] = "normal"  # 🟢 जिंकल्यावर पुन्हा नॉर्मल मोडवर येईल
+                state["circle_count"] = 0
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
             else:
                 state["stats"]["bs_fail"] += 1
                 state["bs_level"] += 1
                 state["bs_fails_in_row"] += 1 
-                
-                # हरत असताना चालू लेव्हलनुसार झोन अपडेट करणे
-                if state["bs_level"] >= 7:
-                    state["market_zone"] = f"🔴 DANGER ZONE (Active L{state['bs_level']})"
-                elif state["bs_level"] >= 5:
-                    state["market_zone"] = f"⚠️ DIVERGENCE ZONE (Active L{state['bs_level']})"
-                    
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
         else:
             state["stats"]["bs_skip"] += 1
@@ -249,34 +209,25 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 L4 TO L10 CUSTOM PATTERN LOGIC 🚀
+        # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> 2-CIRCLE MODE) 🚀
         # =======================================================
+        # हे 1 मिनिटाच्या फाईलमधील हुबेहूब लॉजिक आहे
         if state["mode"] == "normal":
             if state["bs_level"] >= 4: 
-                state["mode"] = "custom-pattern"
-                state["circle_target_a"] = latest_bs
-                state["circle_target_b"] = "Small" if latest_bs == "Big" else "Big"
-                state["bs_pred"] = state["circle_target_a"]
+                state["mode"] = "2-circle"
+                # Level 3 चे जे prediction होते तेच पुढे L4 आणि L5 साठी वापरायचे (तुमच्या सूचनेनुसार बदल)
+                state["circle_current_target"] = state["bs_pred"] 
+                state["circle_count"] = 1
+                state["bs_pred"] = state["circle_current_target"]
             else:
                 state["bs_pred"] = latest_bs
                 
-        elif state["mode"] == "custom-pattern":
-            lvl = state["bs_level"]
-            
-            if lvl in [4, 5]:
-                # L4 आणि L5 ला पहिला टार्गेट
-                state["bs_pred"] = state["circle_target_a"]
-            elif lvl in [6, 7, 8]:
-                # L6, L7, L8 ला विरुद्ध टार्गेट (सलग ३ वेळा)
-                state["bs_pred"] = state["circle_target_b"]
-            elif lvl in [9, 10]:
-                # L9 आणि L10 ला पुन्हा पहिला टार्गेट
-                state["bs_pred"] = state["circle_target_a"]
-            else:
-                # जर L10 च्या पुढे (L11) गेला, तर स्टॉप-लॉस म्हणून रिसेट करेल
-                state["bs_level"] = 1
-                state["mode"] = "normal"
-                state["bs_pred"] = latest_bs
+        elif state["mode"] == "2-circle":
+            state["circle_count"] += 1
+            if state["circle_count"] > 2:
+                state["circle_current_target"] = "Small" if state["circle_current_target"] == "Big" else "Big"
+                state["circle_count"] = 1
+            state["bs_pred"] = state["circle_current_target"]
         # =======================================================
 
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
@@ -303,16 +254,12 @@ def render_game_panel(state):
     
     ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})" if state["bs_active"] else f"[yellow]WAIT[/] (Pending L{state['bs_level']})"
     
-    if state["mode"] == "custom-pattern":
-        ui_text += " [bold magenta]🔄 Pattern[/]"
+    if state["mode"] == "2-circle":
+        ui_text += " [bold magenta]🔄 2-Circle[/]"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
-    zone_color = "green" if "SAFE" in state["market_zone"] else ("red" if "DANGER" in state["market_zone"] else "yellow")
-    
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n📏 [bold]Pred:[/] {ui_text}\n"
-    panel_text += f"🌀 [bold]Zone:[/] [{zone_color}]{state['market_zone']}[/]\n"
-    panel_text += f"📈 [bold]Rebounds:[/] {state['rebound_history']}\n"
     panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
     panel_text += f"📊 [bold]W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/] | [bold]S:[/] [yellow]{state['stats']['bs_skip']}[/]\n"
     
@@ -333,7 +280,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S BOT (Custom Pattern Logic)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S BOT (Trend -> 2-Circle Strategy)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

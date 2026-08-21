@@ -25,7 +25,7 @@ def create_state(name, interval):
         "last_processed_issue": None,
         "bs_pred": None, "bs_level": 1, "bs_active": True, "bs_fails_in_row": 0,
         
-        # --- 3-COMBINATION STRATEGY VARIABLES ---
+        # --- 2-CIRCLE STRATEGY VARIABLES ---
         "mode": "normal",
         "circle_current_target": None, 
         "circle_count": 0,
@@ -107,13 +107,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     
     if state["bs_active"]:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
-        
-        mode_text = ""
-        if state["mode"] == "2-circle":
-            mode_text = "(🔄 2-Circle Mode)"
-        elif state["mode"] == "flip":
-            mode_text = "(🔁 Flip Mode)"
-            
+        mode_text = "(🔄 2-Circle Mode)" if state["mode"] == "2-circle" else ""
         text += f"📏 *Prediction:* *{bs_pred_text}*\n"
         text += f"🎯 *Level:* L{bs_level} {mode_text}\n\n"
     else:
@@ -207,7 +201,7 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 3-COMBINATION STRATEGY LOGIC 🚀
+        # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> 2-CIRCLE MODE) 🚀
         # =======================================================
         if state["mode"] == "normal":
             if state["bs_level"] >= 4: 
@@ -219,20 +213,11 @@ def process_strategy(state, records):
                 state["bs_pred"] = latest_bs
                 
         elif state["mode"] == "2-circle":
-            if state["bs_level"] >= 7:
-                state["mode"] = "flip"
-                # L6 फेल गेल्यावर लगेच विरुद्ध (Flip) प्रेडिक्शन देणे
-                state["bs_pred"] = "Small" if state["bs_pred"] == "Big" else "Big"
-            else:
-                state["circle_count"] += 1
-                if state["circle_count"] > 2:
-                    state["circle_current_target"] = "Small" if state["circle_current_target"] == "Big" else "Big"
-                    state["circle_count"] = 1
-                state["bs_pred"] = state["circle_current_target"]
-                
-        elif state["mode"] == "flip":
-            # L7, L8 आणि त्यापुढे प्रत्येक वेळी विरुद्ध दिशा (Flip)
-            state["bs_pred"] = "Small" if state["bs_pred"] == "Big" else "Big"
+            state["circle_count"] += 1
+            if state["circle_count"] > 2:
+                state["circle_current_target"] = "Small" if state["circle_current_target"] == "Big" else "Big"
+                state["circle_count"] = 1
+            state["bs_pred"] = state["circle_current_target"]
         # =======================================================
 
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
@@ -261,8 +246,6 @@ def render_game_panel(state):
     
     if state["mode"] == "2-circle":
         ui_text += " [bold magenta]🔄 2-Circle[/]"
-    elif state["mode"] == "flip":
-        ui_text += " [bold yellow]🔁 Flip[/]"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
@@ -286,7 +269,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_1m = render_game_panel(state_1m)
     return Group(
-        Align.center("[bold yellow]🚀 1 MINUTE BOT[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 1 MINUTE BOT (Trend -> 2-Circle Strategy)[/bold yellow]\n"),
         Align.center(p_1m)
     )
 

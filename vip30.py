@@ -107,8 +107,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     if state["bs_active"]:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
         
-        # 👇 जर तुला हा मेसेज आला, तर समजून जा नवीन कोड बरोबर काम करत आहे! 👇
-        mode_text = "(🔄 L3 Target Mode)" if state["mode"] == "2-circle" else ""
+        mode_text = "(🔄 2-Circle Mode)" if state["mode"] == "2-circle" else ""
         
         text += f"📏 *Prediction:* *{bs_pred_text}*\n"
         text += f"🎯 *Level:* L{bs_level} {mode_text}\n\n"
@@ -214,24 +213,32 @@ def process_strategy(state, records):
         # =======================================================
         # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> L3 ACTUAL RESULT 2-CIRCLE) 🚀
         # =======================================================
-        if state["mode"] == "normal":
-            if state["bs_level"] >= 4: 
-                state["mode"] = "2-circle"
+        if state["bs_active"]:
+            if state["mode"] == "normal":
+                # जर Level 4 वर पोहोचलो (म्हणजे L3 फेल झाले)
+                if state["bs_level"] >= 4: 
+                    state["mode"] = "2-circle"
+                    
+                    # 🎯 latest_bs हा फेल झालेल्या L3 चा 'खरा रिझल्ट (Real Result)' आहे.
+                    # तोच आपण L4 आणि L5 साठी टार्गेट करत आहोत.
+                    state["circle_current_target"] = latest_bs 
+                    state["circle_count"] = 1 # पहिली वेळ (L4 साठी)
+                    state["bs_pred"] = state["circle_current_target"]
+                else:
+                    # L1, L2, L3 साठी नॉर्मल ट्रेंड फॉलो (शेवटचा आलेला रिझल्ट लावणे)
+                    state["bs_pred"] = latest_bs
+                    
+            elif state["mode"] == "2-circle":
+                state["circle_count"] += 1 # नवीन लेव्हलसाठी काऊंट वाढवा
                 
-                # 🎯 बुलेटप्रूफ लॉजिक: latest_bs म्हणजेच फेल झालेल्या L3 चा 'खरा निकाल'. 
-                # तोच आपण L4 आणि L5 साठी टार्गेट म्हणून कॅरी फॉरवर्ड करत आहोत!
-                state["circle_current_target"] = latest_bs 
-                state["circle_count"] = 1
+                # जर काऊंट 2 पेक्षा जास्त झाला (म्हणजे 2 वेळा सेम प्रेडिक्शन लावून झालं - उदा. L4 आणि L5)
+                # तर आता टार्गेट बदला (पुढचे 2 वेळा विरुद्ध लावण्यासाठी - उदा. L6 आणि L7)
+                if state["circle_count"] > 2:
+                    state["circle_current_target"] = "Small" if state["circle_current_target"] == "Big" else "Big"
+                    state["circle_count"] = 1 # नवीन टार्गेटसाठी काऊंट रिसेट (1)
+                    
+                # ठरलेले टार्गेट प्रेडिक्शन म्हणून सेट करा
                 state["bs_pred"] = state["circle_current_target"]
-            else:
-                state["bs_pred"] = latest_bs
-                
-        elif state["mode"] == "2-circle":
-            state["circle_count"] += 1
-            if state["circle_count"] > 2:
-                state["circle_current_target"] = "Small" if state["circle_current_target"] == "Big" else "Big"
-                state["circle_count"] = 1
-            state["bs_pred"] = state["circle_current_target"]
         # =======================================================
 
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
@@ -259,7 +266,7 @@ def render_game_panel(state):
     ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})" if state["bs_active"] else f"[yellow]WAIT[/] (Pending L{state['bs_level']})"
     
     if state["mode"] == "2-circle":
-        ui_text += " [bold magenta]🔄 L3 Target Mode[/]"
+        ui_text += " [bold magenta]🔄 2-Circle Mode[/]"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
@@ -284,7 +291,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S BOT (Trend -> L3 Target Strategy)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S BOT (Trend -> L3 Real Result -> 2 Circle)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

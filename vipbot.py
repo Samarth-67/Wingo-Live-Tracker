@@ -206,7 +206,8 @@ def process_strategy(state, records):
         if state["mode"] == "normal":
             if state["bs_level"] >= 4: 
                 state["mode"] = "2-circle"
-                state["circle_current_target"] = latest_bs
+                # Level 3 चे जे prediction होते तेच पुढे L4 आणि L5 साठी वापरायचे (तुमच्या सूचनेनुसार बदल)
+                state["circle_current_target"] = state["bs_pred"] 
                 state["circle_count"] = 1
                 state["bs_pred"] = state["circle_current_target"]
             else:

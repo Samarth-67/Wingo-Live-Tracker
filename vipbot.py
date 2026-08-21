@@ -165,6 +165,14 @@ def process_strategy(state, records):
         return True
 
     if state["last_processed_issue"] != latest_issue:
+        # =========================================================
+        # 🛡️ API CACHE FIX 
+        # =========================================================
+        if state["last_processed_issue"].isdigit() and latest_issue.isdigit():
+            if int(latest_issue) <= int(state["last_processed_issue"]):
+                return False  
+        # =========================================================
+
         bs_res_status = "-"
         state["stats"]["total_trades"] += 1
         
@@ -201,13 +209,13 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> 2-CIRCLE MODE) 🚀
+        # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> ACTUAL RESULT 2-CIRCLE MODE) 🚀
         # =======================================================
         if state["mode"] == "normal":
             if state["bs_level"] >= 4: 
                 state["mode"] = "2-circle"
-                # Level 3 चे जे prediction होते तेच पुढे L4 आणि L5 साठी वापरायचे (तुमच्या सूचनेनुसार बदल)
-                state["circle_current_target"] = state["bs_pred"] 
+                # 🎯 मुख्य बदल: Level 3 चा जो खरा निकाल (Actual Result) आला, तोच पुढे कॅरी फॉरवर्ड होईल
+                state["circle_current_target"] = latest_bs 
                 state["circle_count"] = 1
                 state["bs_pred"] = state["circle_current_target"]
             else:

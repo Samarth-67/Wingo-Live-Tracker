@@ -11,8 +11,8 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-TELEGRAM_TOKEN = "8577275461:AAFxaP6wBVTkpl4LrluRUCh0DRZwb4fejmw" 
-TARGET_GROUP_ID = "-5202202128"  # <--- चॅनेल/ग्रुपचा आयडी
+TELEGRAM_TOKEN = "8660932571:AAHpJ4pE7dOzK3YysJ68eiP1D9Jn7nlNpxc" 
+TARGET_GROUP_ID = "-1004318545622"  # <--- नवीन ३० सेकंदाच्या चॅनेल/ग्रुपचा आयडी
 
 # 🔐 सिक्रेट पासवर्ड
 PASS_30S = "11111"   # ३० सेकंदाच्या गेमसाठी
@@ -164,6 +164,14 @@ def process_strategy(state, records):
         return True
 
     if state["last_processed_issue"] != latest_issue:
+        # =========================================================
+        # 🛡️ API CACHE FIX (डबल मेसेज येणे कायमचे बंद करण्यासाठी) 🛡️
+        # =========================================================
+        if state["last_processed_issue"].isdigit() and latest_issue.isdigit():
+            if int(latest_issue) <= int(state["last_processed_issue"]):
+                return False  # जुना किंवा सेम तिकीट नंबर आल्यास दुर्लक्ष करेल
+        # =========================================================
+
         bs_res_status = "-"
         state["stats"]["total_trades"] += 1
         
@@ -205,6 +213,7 @@ def process_strategy(state, records):
         if state["mode"] == "normal":
             if state["bs_level"] >= 4: 
                 state["mode"] = "2-circle"
+                # L3 फेल झाल्यावर जो लेटेस्ट रिझल्ट आलाय, तोच पुढे २ वेळा चालू ठेवणे
                 state["circle_current_target"] = latest_bs
                 state["circle_count"] = 1
                 state["bs_pred"] = state["circle_current_target"]
@@ -213,6 +222,7 @@ def process_strategy(state, records):
                 
         elif state["mode"] == "2-circle":
             state["circle_count"] += 1
+            # ३ ऐवजी आता फक्त २ वेळा एक रंग लावला जाईल
             if state["circle_count"] > 2:
                 state["circle_current_target"] = "Small" if state["circle_current_target"] == "Big" else "Big"
                 state["circle_count"] = 1
@@ -269,7 +279,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S BOT (Live Prediction)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S BOT (Trend -> 2-Circle Strategy)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

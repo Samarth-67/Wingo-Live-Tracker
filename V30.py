@@ -178,6 +178,14 @@ def process_strategy(state, records):
         return True
 
     if state["last_processed_issue"] != latest_issue:
+        # =========================================================
+        # 🛡️ API CACHE FIX (डबल मेसेज येणे कायमचे बंद करण्यासाठी) 🛡️
+        # =========================================================
+        if state["last_processed_issue"].isdigit() and latest_issue.isdigit():
+            if int(latest_issue) <= int(state["last_processed_issue"]):
+                return False  # जुना किंवा सेम तिकीट नंबर आल्यास दुर्लक्ष करेल
+        # =========================================================
+
         bs_res_status = "-"
         state["stats"]["total_trades"] += 1
         

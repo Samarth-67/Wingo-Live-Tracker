@@ -12,7 +12,7 @@ console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
 TELEGRAM_TOKEN = "7706219157:AAH4XrsEnDxSNtlu2i974ALZ--M_3hbMIfA" 
-TARGET_GROUP_ID = "-1003950996760"  # <--- नवीन चॅनेल/ग्रुप आयडी
+TARGET_GROUP_ID = "-3950996760"  # <--- तुमचा नवीन अपडेट केलेला ग्रुप आयडी
 
 # 🔐 सिक्रेट पासवर्ड्स
 PASS_1M = "22222"   # १ मिनिटाच्या गेमसाठी

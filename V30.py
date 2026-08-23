@@ -2,7 +2,6 @@ import os
 import time
 import threading
 import requests
-import random  # <--- Random logic साठी ऍड केले
 from rich.table import Table
 from rich.console import Console, Group
 from rich.panel import Panel
@@ -13,8 +12,8 @@ console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
 TELEGRAM_TOKEN = "8577275461:AAF8lWPac3WCgbHp8XPvU_lO289oHcMdOE8" 
-TARGET_GROUP_ID = "-5202202128"  # <--- तुझा ग्रुप आयडी
-PASS_30S = "11111"   # ३० सेकंदाच्या गेमसाठी
+TARGET_GROUP_ID = "-5202202128" 
+PASS_30S = "11111"   
 # ----------------------------------------
 
 def create_state(name, interval):
@@ -24,12 +23,13 @@ def create_state(name, interval):
         "last_processed_issue": None,
         "bs_pred": None, "bs_level": 1, "bs_active": True, "bs_fails_in_row": 0,
         
-        # --- NEW RANDOM & NUMBER LOGIC VARIABLES ---
+        # --- NEW VARIABLES ---
         "pred_type": "Trend",
-        "num_pred": None,
+        "num_pred": "-",
         "missing_numbers": "",
         "special_patterns": {},
-        # -------------------------------------------
+        "special_msg": "",
+        # ---------------------
         
         "history": [],
         "stats": {"bs_win": 0, "bs_fail": 0, "bs_skip": 0, "total_trades": 0},
@@ -105,26 +105,31 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     # २. टोकन नंबर (Issue)
     text += f"🎟️ *Issue:* {issue}\n"
     
-    # ३. Big/Small आणि प्रेडिक्शन प्रकार (Trend किंवा Random)
+    # ३. Big/Small Prediction
     if state["bs_active"]:
         bs_pred_text = "Big" if bs_pred == "Big" else "Small"
-        pred_mode = "📈 Trend" if state.get("pred_type") == "Trend" else "🎲 Random"
+        pred_mode = f"📈 {state.get('pred_type')}"
         text += f"🎯 *BS Pred:* *{bs_pred_text}* (L{bs_level}) [{pred_mode}]\n"
     else:
         text += f"🎯 *BS Pred:* ⏸️ *WAIT* (L{bs_level})\n"
         
-    # ४. Number Prediction
-    if state.get("num_pred") is not None:
-        text += f"🔢 *Number Pred:* *{state['num_pred']}*\n\n"
+    # ४. Number Prediction (जर ट्रिगर झाला असेल तरच)
+    if state.get("num_pred") and state["num_pred"] != "-":
+        text += f"🔢 *Number Pred:* *{state['num_pred']}*\n"
         
-    # ५. Missing Numbers & Special Patterns
+    if state.get("special_msg"):
+        text += f"ℹ️ _{state['special_msg']}_\n\n"
+        
+    # ५. Missing Numbers
     if state.get("missing_numbers"):
         text += f"🔍 *Missing in Last 10:* {state['missing_numbers']}\n"
         
+    # ६. Hot Favorites List
     sp_patterns = state.get("special_patterns", {})
     if sp_patterns:
-        pat_str = " | ".join([f"{k}➡️{v}" for k, v in sp_patterns.items()])
-        text += f"✨ *Special (4,6,8) Check:* {pat_str}\n"
+        text += "\n✨ *Hot Favorites (Past 50):*\n"
+        for sp, data in sp_patterns.items():
+            text += f"▪️ After {sp} ➡️ {data['fav']} (Came {data['count']} times)\n"
 
     send_telegram_message_direct(target_chat_id, text)
 
@@ -134,7 +139,8 @@ def fetch_data(url):
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://draw.ar-lottery01.com/",
     }
-    params = {"ts": int(time.time() * 1000)}
+    # ५० रेकॉर्ड्स मिळवण्यासाठी pageSize=50 पाठवत आहोत
+    params = {"ts": int(time.time() * 1000), "pageSize": 50, "pageNo": 1}
     try:
         response = requests.get(url, headers=headers, params=params, timeout=10)
         if response.status_code == 200: return response.json()
@@ -211,24 +217,31 @@ def process_strategy(state, records):
         bs_res_status = None
 
     # =======================================================
-    # 🚀 STRATEGY LOGIC: TREND (L1-3) -> RANDOM + NUMBERS 🚀
+    # 🚀 STRATEGY LOGIC: TREND (L1-3) -> 20TH ROUND FALLBACK 🚀
     # =======================================================
-    # १. Big/Small Prediction
-    if state["bs_level"] <= 3:
-        state["bs_pred"] = latest_bs  # लेव्हल ३ पर्यंत मागील ट्रेंड फॉलो करेल
-        state["pred_type"] = "Trend"
-    else:
-        state["bs_pred"] = random.choice(["Big", "Small"]) # लेव्हल ३ च्या पुढे संपूर्ण रँडम
-        state["pred_type"] = "Random"
-
-    # २. मागील रेकॉर्ड्समधून नंबर्स वेगळे करणे
+    
+    # API मधून मागील ५० नंबर्सची लिस्ट बनवणे
     history_numbers = []
-    for r in records:
+    for r in records[:50]:
         n_str = str(r.get("number") or r.get("drawNumber") or "-")
         if n_str.isdigit():
             history_numbers.append(int(n_str))
 
-    # ३. मागील १० राऊंडमधील Missing Numbers
+    # १. Big/Small Prediction (Trend vs 20th Round)
+    if state["bs_level"] <= 3:
+        state["bs_pred"] = latest_bs  
+        state["pred_type"] = "Trend"
+    else:
+        # लेव्हल ३ च्या पुढे गेल्यावर पूर्णपणे रँडम न देता, २० व्या राऊंडचा निकाल (Index 19) वापरणे
+        if len(history_numbers) >= 20:
+            round_20_num = history_numbers[19]
+            state["bs_pred"] = "Big" if round_20_num >= 5 else "Small"
+            state["pred_type"] = "20th Round Pattern"
+        else:
+            state["bs_pred"] = latest_bs # जर २० चा डेटा नसेल तर बॅकअप
+            state["pred_type"] = "Trend (No 20 data)"
+
+    # २. मागील १० राऊंडमधील Missing Numbers
     if len(history_numbers) >= 10:
         last_10 = history_numbers[:10]
         missing_nums = list(set(range(10)) - set(last_10))
@@ -236,33 +249,34 @@ def process_strategy(state, records):
     else:
         state["missing_numbers"] = "Wait..."
 
-    # ४. Special Numbers (4, 6, 8) पॅटर्न (मागील रेकॉर्ड्समध्ये शोधणे)
+    # ३. Hot Favorite Analysis (4, 6, 8 साठी मागील ५० राऊंडचा अ‍ॅव्हरेज)
     special_nums = [4, 6, 8]
     sp_patterns = {}
     
-    # इतिहास तपासून पाहणे (records[0] हा सर्वात नवीन निकाल आहे)
-    # म्हणून जेव्हा history_numbers[i] मध्ये ४,६,८ येतो, तेव्हा त्याच्या नंतर आलेला निकाल history_numbers[i-1] असतो.
     for sp in special_nums:
+        counts = {}
+        # इतिहास तपासून पाहणे: जेव्हा जेव्हा SP (उदा. 4) आला, तेव्हा त्याच्या आधी (नवीन आलेला) नंबर काय होता?
         for i in range(1, len(history_numbers)):
             if history_numbers[i] == sp:
-                sp_patterns[sp] = history_numbers[i-1] 
-                break # सर्वात लेटेस्ट पॅटर्न मिळाल्यावर ब्रेक करणे
+                nxt = history_numbers[i-1] 
+                counts[nxt] = counts.get(nxt, 0) + 1
+        
+        if counts:
+            # सर्वात जास्त वेळा आलेला (High frequency) नंबर शोधणे
+            best_num = max(counts, key=counts.get)
+            best_count = counts[best_num]
+            sp_patterns[sp] = {"fav": best_num, "count": best_count}
 
     state["special_patterns"] = sp_patterns
 
-    # ५. Exact Number Prediction
-    if sp_patterns:
-        # जर ४, ६ किंवा ८ च्या पॅटर्नमधून काही ट्रिगर झाले असेल, तर तो नंबर प्रेडिक्ट कर
-        # सर्वात अलीकडे जो स्पेशल नंबर आला होता, त्याचा निकाल
-        predicted_num = random.randint(0, 9)
-        for i in range(1, len(history_numbers)):
-            if history_numbers[i] in special_nums:
-                predicted_num = history_numbers[i-1]
-                break
-        state["num_pred"] = predicted_num
+    # ४. Exact Number Prediction (फक्त जेव्हा 4, 6, किंवा 8 येईल)
+    latest_num = history_numbers[0] if history_numbers else None
+    if latest_num in special_nums and latest_num in sp_patterns:
+        state["num_pred"] = str(sp_patterns[latest_num]["fav"])
+        state["special_msg"] = f"🔥 {latest_num} आला आहे! म्हणून Hot Favorite प्रेडिक्शन."
     else:
-        # जर पॅटर्न नसेल तर रँडम नंबर
-        state["num_pred"] = random.randint(0, 9)
+        state["num_pred"] = "-"
+        state["special_msg"] = "Waiting for 4, 6, or 8 to trigger prediction..."
     # =======================================================
 
     next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
@@ -287,7 +301,7 @@ def render_game_panel(state):
     bs_color = "dark_orange" if state["bs_pred"] == "Big" else "bright_blue"
     
     ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})" if state["bs_active"] else f"[yellow]WAIT[/] (Pending L{state['bs_level']})"
-    mode_text = f"[[green]Trend[/]]" if state.get("pred_type") == "Trend" else f"[[magenta]Random[/]]"
+    mode_text = f"[[green]{state.get('pred_type', 'Trend')}[/]]"
     ui_text += f" {mode_text}"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
@@ -315,7 +329,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S BOT (Trend + Random Strategy)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S BOT (Trend + 20th Round Logic)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

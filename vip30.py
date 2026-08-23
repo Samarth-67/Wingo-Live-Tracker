@@ -108,10 +108,10 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         text += f"📏 *Prediction:* *{bs_pred_text}*\n"
         text += f"🎯 *Level:* L{bs_level}\n\n"
     else:
-        # जर सलग 4 वेळा फेल झाले असेल तर Stop Loss मेसेज
+        # जर सलग 4 वेळा फेल झाले असेल तर Stop Loss मेसेज आणि L5 ची सूचना
         if state["bs_fails_in_row"] >= 4:
             text += f"🛑 *TRADING STOP! (Level 4 Failed)* 🛑\n"
-            text += f"⏳ _Waiting for Circle Match (Big-Big or Small-Small) to restart..._\n\n"
+            text += f"⏳ _Waiting for Circle Match to restart from Level 5..._\n\n"
         else:
             text += f"📏 *Prediction:* ⏸️ *WAIT FOR PATTERN*\n\n"
         
@@ -183,7 +183,7 @@ def process_strategy(state, records):
             bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
             if bs_win:
                 state["stats"]["bs_win"] += 1
-                state["bs_level"] = 1 
+                state["bs_level"] = 1 # जिंकल्यावर पुन्हा लेव्हल १ वर येईल
                 state["bs_fails_in_row"] = 0 
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
             else:
@@ -202,7 +202,7 @@ def process_strategy(state, records):
             if latest_bs == prev_bs:
                 state["bs_active"] = True
                 state["bs_fails_in_row"] = 0 
-                state["bs_level"] = 1 # पुन्हा लेव्हल १ पासून सुरुवात
+                state["bs_level"] = 5 # <--- लेव्हल १ ऐवजी आता थेट लेव्हल ५ पासून सुरू होईल
                 
         bs_disp_pred = state["bs_pred"] if state["bs_active"] else "[yellow]WAIT[/]"
         bs_disp_lvl = f"L{state['bs_level']}" if state["bs_active"] else f"L{state['bs_level']}(Hold)"
@@ -215,11 +215,11 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 STRATEGY LOGIC (TREND -> L4 takes L2's Prediction) 🚀
+        # 🚀 STRATEGY LOGIC (TREND -> L4 takes L2's Prediction -> Restart L5) 🚀
         # =======================================================
         if state["bs_active"]:
-            if state["bs_level"] <= 3:
-                # Level 1, 2, 3 साठी Trend Follow
+            # Level 1, 2, 3 आणि Level 5 किंवा त्यापुढील साठी Trend Follow
+            if state["bs_level"] <= 3 or state["bs_level"] >= 5:
                 state["bs_pred"] = latest_bs
                 
                 # जर Level 2 चे प्रेडिक्शन देत असू, तर ते सेव्ह करून ठेवणे (Level 4 साठी)
@@ -278,7 +278,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S BOT (Trend -> L4=L2 -> Stop Loss)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S BOT (Trend -> L4=L2 -> Restart L5)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

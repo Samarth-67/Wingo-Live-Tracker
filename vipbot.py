@@ -11,7 +11,7 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-TELEGRAM_TOKEN = "7706219157:AAF-z7DfUlBtteflQNn5OsgPhbEc9XMthd4"  # <--- नवीन अपडेट केलेला टोकन
+TELEGRAM_TOKEN = "7706219157:AAF-z7DfUlBtteflQNn5OsgPhbEc9XMthd4" 
 TARGET_GROUP_ID = "-3950996760"  # <--- तुमचा ग्रुप आयडी
 
 # 🔐 सिक्रेट पासवर्ड्स
@@ -110,7 +110,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         # जर सलग 4 वेळा फेल झाले असेल तर Stop Loss मेसेज
         if state["bs_fails_in_row"] >= 4:
             text += f"🛑 *TRADING STOP! (Level 4 Failed)* 🛑\n"
-            text += f"⏳ _Waiting for Circle Match (Big-Big or Small-Small) to restart..._\n\n"
+            text += f"⏳ _Waiting for Circle Match to restart from Level 5..._\n\n"
         else:
             text += f"📏 *Prediction:* ⏸️ *WAIT FOR PATTERN*\n\n"
     
@@ -182,7 +182,7 @@ def process_strategy(state, records):
             bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
             if bs_win:
                 state["stats"]["bs_win"] += 1
-                state["bs_level"] = 1 
+                state["bs_level"] = 1 # जिंकल्यावर पुन्हा लेव्हल १ वर येईल
                 state["bs_fails_in_row"] = 0 
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
             else:
@@ -201,7 +201,7 @@ def process_strategy(state, records):
             if latest_bs == prev_bs:
                 state["bs_active"] = True
                 state["bs_fails_in_row"] = 0 
-                state["bs_level"] = 1 # पुन्हा लेव्हल १ पासून सुरुवात
+                state["bs_level"] = 5 # <--- लेव्हल १ ऐवजी आता थेट लेव्हल ५ पासून सुरू होईल
                 
         bs_disp_pred = state["bs_pred"] if state["bs_active"] else "[yellow]WAIT[/]"
         bs_disp_lvl = f"L{state['bs_level']}" if state["bs_active"] else f"L{state['bs_level']}(Hold)"
@@ -214,11 +214,11 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 STRATEGY LOGIC (TREND -> L4 takes L2's Prediction) 🚀
+        # 🚀 STRATEGY LOGIC (TREND -> L4=L2 -> L5+ Trend) 🚀
         # =======================================================
         if state["bs_active"]:
-            if state["bs_level"] <= 3:
-                # Level 1, 2, 3 साठी Trend Follow
+            if state["bs_level"] <= 3 or state["bs_level"] >= 5:
+                # Level 1, 2, 3 आणि Level 5 किंवा त्यापुढील साठी Trend Follow
                 state["bs_pred"] = latest_bs
                 
                 # जर Level 2 चे प्रेडिक्शन देत असू, तर ते सेव्ह करून ठेवणे (Level 4 साठी)
@@ -276,7 +276,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_1m = render_game_panel(state_1m)
     return Group(
-        Align.center("[bold yellow]🚀 1 MINUTE BOT (Trend -> L4=L2 -> Stop Loss)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 1 MINUTE BOT (Trend -> L4=L2 -> Restart L5)[/bold yellow]\n"),
         Align.center(p_1m)
     )
 

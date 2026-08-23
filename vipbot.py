@@ -191,8 +191,9 @@ def process_strategy(state, records):
                 state["bs_fails_in_row"] += 1 
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
                 
-                # 🛑 STOP LOSS: जर लेव्हल ४ फेल झाली (म्हणजे आता लेव्हल ५ ची वेळ आली), तर बॉट थांबवणे
-                if state["bs_level"] > 4:
+                # 🛑 STOP LOSS: फक्त लेव्हल ४ फेल झाल्यावरच थांबायचे आहे (म्हणजे bs_level 5 झाल्यावर).
+                # ५ नंतरच्या लेव्हलसाठी थांबणार नाही. 
+                if state["bs_level"] == 5:
                     state["bs_active"] = False
         else:
             state["stats"]["bs_skip"] += 1
@@ -214,11 +215,11 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 STRATEGY LOGIC (TREND -> L4=L2 -> L5+ Trend) 🚀
+        # 🚀 STRATEGY LOGIC (TREND -> L4 takes L2's Prediction -> Continuous L5+) 🚀
         # =======================================================
         if state["bs_active"]:
             if state["bs_level"] <= 3 or state["bs_level"] >= 5:
-                # Level 1, 2, 3 आणि Level 5 किंवा त्यापुढील साठी Trend Follow
+                # Level 1, 2, 3 आणि Level 5 किंवा त्यापुढील सर्व लेव्हल्ससाठी Trend Follow
                 state["bs_pred"] = latest_bs
                 
                 # जर Level 2 चे प्रेडिक्शन देत असू, तर ते सेव्ह करून ठेवणे (Level 4 साठी)
@@ -276,7 +277,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_1m = render_game_panel(state_1m)
     return Group(
-        Align.center("[bold yellow]🚀 1 MINUTE BOT (Trend -> L4=L2 -> Restart L5)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 1 MINUTE BOT (Trend -> L4=L2 -> Continuous L5+)[/bold yellow]\n"),
         Align.center(p_1m)
     )
 

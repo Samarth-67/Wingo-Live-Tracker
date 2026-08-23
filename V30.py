@@ -2,6 +2,7 @@ import os
 import time
 import threading
 import requests
+import random  # <--- Random logic साठी ऍड केले
 from rich.table import Table
 from rich.console import Console, Group
 from rich.panel import Panel
@@ -11,11 +12,8 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-# 👇 तुझा नवीन टोकन इथे अपडेट केला आहे 👇
 TELEGRAM_TOKEN = "8577275461:AAF8lWPac3WCgbHp8XPvU_lO289oHcMdOE8" 
 TARGET_GROUP_ID = "-5202202128"  # <--- तुझा ग्रुप आयडी
-
-# 🔐 सिक्रेट पासवर्ड
 PASS_30S = "11111"   # ३० सेकंदाच्या गेमसाठी
 # ----------------------------------------
 
@@ -26,9 +24,12 @@ def create_state(name, interval):
         "last_processed_issue": None,
         "bs_pred": None, "bs_level": 1, "bs_active": True, "bs_fails_in_row": 0,
         
-        # --- 15-ROUND OPTIMIZED CYCLE VARIABLES ---
-        "cycle_anchor": None, 
-        # ---------------------------------------
+        # --- NEW RANDOM & NUMBER LOGIC VARIABLES ---
+        "pred_type": "Trend",
+        "num_pred": None,
+        "missing_numbers": "",
+        "special_patterns": {},
+        # -------------------------------------------
         
         "history": [],
         "stats": {"bs_win": 0, "bs_fail": 0, "bs_skip": 0, "total_trades": 0},
@@ -86,14 +87,13 @@ def telegram_listener():
             pass
         time.sleep(3)
 
-# 👇 टेलिग्राम मेसेज एकदम स्वच्छ (Clean) केला आहे 👇
 def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     target_chat_id = TARGET_GROUP_ID
     if not target_chat_id: return
 
     text = ""
     
-    # १. मागील निकाल (फक्त WIN/FAIL दिसेल)
+    # १. मागील निकाल
     if state["stats"]["total_trades"] > 0 and prev_bs_res:
         if "WIN" in prev_bs_res:
             text += f"📊 *Last Result:* ✅ WIN\n\n"
@@ -102,19 +102,30 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         else:
             text += f"📊 *Last Result:* ⏸️ SKIP\n\n"
             
-    # २. टोकन नंबर (Issue) आणि १५ राऊंडची सायकल (Round)
-    cycle_step = ((state["stats"]["total_trades"]) % 15) + 1
-    
+    # २. टोकन नंबर (Issue)
     text += f"🎟️ *Issue:* {issue}\n"
-    text += f"🔄 *Round:* {cycle_step}/15\n"
     
-    # ३. पुढचे प्रेडिक्शन
+    # ३. Big/Small आणि प्रेडिक्शन प्रकार (Trend किंवा Random)
     if state["bs_active"]:
         bs_pred_text = "Big" if bs_pred == "Big" else "Small"
-        text += f"🎯 *Pred:* *{bs_pred_text}* (L{bs_level})\n"
+        pred_mode = "📈 Trend" if state.get("pred_type") == "Trend" else "🎲 Random"
+        text += f"🎯 *BS Pred:* *{bs_pred_text}* (L{bs_level}) [{pred_mode}]\n"
     else:
-        text += f"🎯 *Pred:* ⏸️ *WAIT* (L{bs_level})\n"
+        text += f"🎯 *BS Pred:* ⏸️ *WAIT* (L{bs_level})\n"
         
+    # ४. Number Prediction
+    if state.get("num_pred") is not None:
+        text += f"🔢 *Number Pred:* *{state['num_pred']}*\n\n"
+        
+    # ५. Missing Numbers & Special Patterns
+    if state.get("missing_numbers"):
+        text += f"🔍 *Missing in Last 10:* {state['missing_numbers']}\n"
+        
+    sp_patterns = state.get("special_patterns", {})
+    if sp_patterns:
+        pat_str = " | ".join([f"{k}➡️{v}" for k, v in sp_patterns.items()])
+        text += f"✨ *Special (4,6,8) Check:* {pat_str}\n"
+
     send_telegram_message_direct(target_chat_id, text)
 
 def fetch_data(url):
@@ -157,15 +168,10 @@ def process_strategy(state, records):
     else:
         return False
 
-    if state["last_processed_issue"] is None:
-        state["last_processed_issue"] = latest_issue
-        state["bs_pred"] = latest_bs
-        next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
-        if state["is_running"]:
-            send_telegram_signal(state, next_issue, state["bs_pred"], state["bs_level"])
-        return True
+    if state["last_processed_issue"] == latest_issue:
+        return False
 
-    if state["last_processed_issue"] != latest_issue:
+    if state["last_processed_issue"] is not None:
         if state["last_processed_issue"].isdigit() and latest_issue.isdigit():
             if int(latest_issue) <= int(state["last_processed_issue"]):
                 return False  
@@ -201,38 +207,71 @@ def process_strategy(state, records):
             "bs_res": "[green]WIN[/]" if "WIN" in bs_res_status else ("[yellow]SKIP[/]" if "SKIP" in bs_res_status else "[red]FAIL[/]")
         })
         if len(state["history"]) > 3: state["history"].pop(0)
+    else:
+        bs_res_status = None
 
-        # =======================================================
-        # 🚀 STRATEGY LOGIC (15-ROUND OPTIMIZED CYCLE) 🚀
-        # =======================================================
-        cycle_index = (state["stats"]["total_trades"] - 1) % 15  
+    # =======================================================
+    # 🚀 STRATEGY LOGIC: TREND (L1-3) -> RANDOM + NUMBERS 🚀
+    # =======================================================
+    # १. Big/Small Prediction
+    if state["bs_level"] <= 3:
+        state["bs_pred"] = latest_bs  # लेव्हल ३ पर्यंत मागील ट्रेंड फॉलो करेल
+        state["pred_type"] = "Trend"
+    else:
+        state["bs_pred"] = random.choice(["Big", "Small"]) # लेव्हल ३ च्या पुढे संपूर्ण रँडम
+        state["pred_type"] = "Random"
 
-        if cycle_index == 0:
-            state["cycle_anchor"] = latest_bs  
+    # २. मागील रेकॉर्ड्समधून नंबर्स वेगळे करणे
+    history_numbers = []
+    for r in records:
+        n_str = str(r.get("number") or r.get("drawNumber") or "-")
+        if n_str.isdigit():
+            history_numbers.append(int(n_str))
 
-        if not state["cycle_anchor"]:
-            state["cycle_anchor"] = latest_bs
+    # ३. मागील १० राऊंडमधील Missing Numbers
+    if len(history_numbers) >= 10:
+        last_10 = history_numbers[:10]
+        missing_nums = list(set(range(10)) - set(last_10))
+        state["missing_numbers"] = ", ".join(map(str, missing_nums)) if missing_nums else "None"
+    else:
+        state["missing_numbers"] = "Wait..."
 
-        anchor = state["cycle_anchor"]
-        opp = "Small" if anchor == "Big" else "Big"
+    # ४. Special Numbers (4, 6, 8) पॅटर्न (मागील रेकॉर्ड्समध्ये शोधणे)
+    special_nums = [4, 6, 8]
+    sp_patterns = {}
+    
+    # इतिहास तपासून पाहणे (records[0] हा सर्वात नवीन निकाल आहे)
+    # म्हणून जेव्हा history_numbers[i] मध्ये ४,६,८ येतो, तेव्हा त्याच्या नंतर आलेला निकाल history_numbers[i-1] असतो.
+    for sp in special_nums:
+        for i in range(1, len(history_numbers)):
+            if history_numbers[i] == sp:
+                sp_patterns[sp] = history_numbers[i-1] 
+                break # सर्वात लेटेस्ट पॅटर्न मिळाल्यावर ब्रेक करणे
 
-        pattern = [
-            anchor, opp, anchor, opp, anchor,
-            opp, opp, anchor, anchor, opp,
-            anchor, anchor, anchor, opp, opp
-        ]
+    state["special_patterns"] = sp_patterns
 
-        state["bs_pred"] = pattern[cycle_index]
-        # =======================================================
+    # ५. Exact Number Prediction
+    if sp_patterns:
+        # जर ४, ६ किंवा ८ च्या पॅटर्नमधून काही ट्रिगर झाले असेल, तर तो नंबर प्रेडिक्ट कर
+        # सर्वात अलीकडे जो स्पेशल नंबर आला होता, त्याचा निकाल
+        predicted_num = random.randint(0, 9)
+        for i in range(1, len(history_numbers)):
+            if history_numbers[i] in special_nums:
+                predicted_num = history_numbers[i-1]
+                break
+        state["num_pred"] = predicted_num
+    else:
+        # जर पॅटर्न नसेल तर रँडम नंबर
+        state["num_pred"] = random.randint(0, 9)
+    # =======================================================
 
-        next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
-        
-        if state["is_running"]:
-            send_telegram_signal(state, next_issue, state["bs_pred"], state["bs_level"], bs_res_status)
+    next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
+    
+    if state["is_running"]:
+        send_telegram_signal(state, next_issue, state["bs_pred"], state["bs_level"], bs_res_status)
 
-        state["last_processed_issue"] = latest_issue
-        return True
-    return False
+    state["last_processed_issue"] = latest_issue
+    return True
 
 def worker_30s():
     url = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
@@ -247,14 +286,15 @@ def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
     bs_color = "dark_orange" if state["bs_pred"] == "Big" else "bright_blue"
     
-    cycle_step = ((state["stats"]["total_trades"]) % 15) + 1
-    
     ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})" if state["bs_active"] else f"[yellow]WAIT[/] (Pending L{state['bs_level']})"
-    ui_text += f" [bold magenta](Step: {cycle_step}/15)[/]"
+    mode_text = f"[[green]Trend[/]]" if state.get("pred_type") == "Trend" else f"[[magenta]Random[/]]"
+    ui_text += f" {mode_text}"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
-    panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n📏 [bold]Pred:[/] {ui_text}\n"
+    panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
+    panel_text += f"📏 [bold]BS Pred:[/] {ui_text}\n"
+    panel_text += f"🔢 [bold]Num Pred:[/] [yellow]{state.get('num_pred', '-')}[/]\n"
     panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
     panel_text += f"📊 [bold]W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/] | [bold]S:[/] [yellow]{state['stats']['bs_skip']}[/]\n"
     
@@ -275,7 +315,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S BOT (15-Round Pro Strategy)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S BOT (Trend + Random Strategy)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

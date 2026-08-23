@@ -25,10 +25,8 @@ def create_state(name, interval):
         "last_processed_issue": None,
         "bs_pred": None, "bs_level": 1, "bs_active": True, "bs_fails_in_row": 0,
         
-        # --- 2-CIRCLE STRATEGY VARIABLES ---
-        "mode": "normal",
-        "circle_current_target": None, 
-        "circle_count": 0,
+        # --- NEW STRATEGY VARIABLES ---
+        "l2_pred": None, # लेव्हल २ चे प्रेडिक्शन सेव्ह करण्यासाठी
         # ---------------------------------------
         
         "history": [],
@@ -107,13 +105,15 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     if state["bs_active"]:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
         
-        mode_text = "(🔄 2-Circle Mode)" if state["mode"] == "2-circle" else ""
-        
         text += f"📏 *Prediction:* *{bs_pred_text}*\n"
-        text += f"🎯 *Level:* L{bs_level} {mode_text}\n\n"
+        text += f"🎯 *Level:* L{bs_level}\n\n"
     else:
-        text += f"📏 *Prediction:* ⏸️ *WAIT FOR PATTERN*\n"
-        text += f"⚠️ *(Pending Level: L{bs_level})*\n\n"
+        # जर सलग 4 वेळा फेल झाले असेल तर Stop Loss मेसेज
+        if state["bs_fails_in_row"] >= 4:
+            text += f"🛑 *TRADING STOP! (Level 4 Failed)* 🛑\n"
+            text += f"⏳ _Waiting for Circle Match (Big-Big or Small-Small) to restart..._\n\n"
+        else:
+            text += f"📏 *Prediction:* ⏸️ *WAIT FOR PATTERN*\n\n"
         
     send_telegram_message_direct(target_chat_id, text)
 
@@ -185,20 +185,24 @@ def process_strategy(state, records):
                 state["stats"]["bs_win"] += 1
                 state["bs_level"] = 1 
                 state["bs_fails_in_row"] = 0 
-                state["mode"] = "normal"  # 🟢 जिंकल्यावर पुन्हा नॉर्मल मोडवर येईल
-                state["circle_count"] = 0
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
             else:
                 state["stats"]["bs_fail"] += 1
                 state["bs_level"] += 1
                 state["bs_fails_in_row"] += 1 
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
+                
+                # 🛑 STOP LOSS: जर लेव्हल ४ फेल झाली (म्हणजे आता लेव्हल ५ ची वेळ आली), तर बॉट थांबवणे
+                if state["bs_level"] > 4:
+                    state["bs_active"] = False
         else:
             state["stats"]["bs_skip"] += 1
             bs_res_status = "SKIP"
+            # 🔄 जर बॉट थांबला असेल, आणि Circle ला Circle मॅच झाला (Big-Big किंवा Small-Small)
             if latest_bs == prev_bs:
                 state["bs_active"] = True
                 state["bs_fails_in_row"] = 0 
+                state["bs_level"] = 1 # पुन्हा लेव्हल १ पासून सुरुवात
                 
         bs_disp_pred = state["bs_pred"] if state["bs_active"] else "[yellow]WAIT[/]"
         bs_disp_lvl = f"L{state['bs_level']}" if state["bs_active"] else f"L{state['bs_level']}(Hold)"
@@ -211,34 +215,20 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 STRATEGY LOGIC (TREND FOLLOWER -> L3 ACTUAL RESULT 2-CIRCLE) 🚀
+        # 🚀 STRATEGY LOGIC (TREND -> L4 takes L2's Prediction) 🚀
         # =======================================================
         if state["bs_active"]:
-            if state["mode"] == "normal":
-                # जर Level 4 वर पोहोचलो (म्हणजे L3 फेल झाले)
-                if state["bs_level"] >= 4: 
-                    state["mode"] = "2-circle"
-                    
-                    # 🎯 latest_bs हा फेल झालेल्या L3 चा 'खरा रिझल्ट (Real Result)' आहे.
-                    # तोच आपण L4 आणि L5 साठी टार्गेट करत आहोत.
-                    state["circle_current_target"] = latest_bs 
-                    state["circle_count"] = 1 # पहिली वेळ (L4 साठी)
-                    state["bs_pred"] = state["circle_current_target"]
-                else:
-                    # L1, L2, L3 साठी नॉर्मल ट्रेंड फॉलो (शेवटचा आलेला रिझल्ट लावणे)
-                    state["bs_pred"] = latest_bs
-                    
-            elif state["mode"] == "2-circle":
-                state["circle_count"] += 1 # नवीन लेव्हलसाठी काऊंट वाढवा
+            if state["bs_level"] <= 3:
+                # Level 1, 2, 3 साठी Trend Follow
+                state["bs_pred"] = latest_bs
                 
-                # जर काऊंट 2 पेक्षा जास्त झाला (म्हणजे 2 वेळा सेम प्रेडिक्शन लावून झालं - उदा. L4 आणि L5)
-                # तर आता टार्गेट बदला (पुढचे 2 वेळा विरुद्ध लावण्यासाठी - उदा. L6 आणि L7)
-                if state["circle_count"] > 2:
-                    state["circle_current_target"] = "Small" if state["circle_current_target"] == "Big" else "Big"
-                    state["circle_count"] = 1 # नवीन टार्गेटसाठी काऊंट रिसेट (1)
+                # जर Level 2 चे प्रेडिक्शन देत असू, तर ते सेव्ह करून ठेवणे (Level 4 साठी)
+                if state["bs_level"] == 2:
+                    state["l2_pred"] = state["bs_pred"]
                     
-                # ठरलेले टार्गेट प्रेडिक्शन म्हणून सेट करा
-                state["bs_pred"] = state["circle_current_target"]
+            elif state["bs_level"] == 4:
+                # Level 4 साठी Level 2 चे सेव्ह केलेले प्रेडिक्शन वापरणे
+                state["bs_pred"] = state["l2_pred"]
         # =======================================================
 
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
@@ -263,10 +253,7 @@ def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
     bs_color = "dark_orange" if state["bs_pred"] == "Big" else "bright_blue"
     
-    ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})" if state["bs_active"] else f"[yellow]WAIT[/] (Pending L{state['bs_level']})"
-    
-    if state["mode"] == "2-circle":
-        ui_text += " [bold magenta]🔄 2-Circle Mode[/]"
+    ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})" if state["bs_active"] else f"[yellow]WAIT[/] (Pending Circle Match)"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
@@ -291,7 +278,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S BOT (Trend -> L3 Real Result -> 2 Circle)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S BOT (Trend -> L4=L2 -> Stop Loss)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

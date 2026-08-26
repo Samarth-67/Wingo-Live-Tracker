@@ -38,14 +38,13 @@ state_30s = create_state("WinGo 30S", "30S")
 
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
-    # 🚀 फास्ट मेसेज सेंडिंग (Background Thread)
+    # 🚀 Async Background Sending (मेसेज सुपरफास्ट जाईल)
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
-            requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
+            requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=3)
         except Exception:
             pass
-    # मेसेज पाठवण्यासाठी बॉट थांबणार नाही, बॅकग्राउंडमध्ये काम करेल
     threading.Thread(target=_send, daemon=True).start()
 
 def telegram_listener():
@@ -97,7 +96,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     text += f"🎟️ *New Issue:* {issue}\n\n"
     
     if bs_pred == "WAIT":
-        text += f"⏳ *Building History Data...*\n_Waiting for issue {int(issue)-20} to sync..._\n"
+        text += f"⏳ *Building History Data...*\n_Waiting for issue {int(issue)-19} to sync..._\n"
     else:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
         text += f"📏 *Prediction:* *{bs_pred_text}*\n"
@@ -105,32 +104,40 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         
     send_telegram_message_direct(target_chat_id, text)
 
-# 🚀 फास्ट API Fetching (स्मार्ट मेमरी लोडर)
+# 🚀 Fast Memory Loader
 def fetch_history_records(url, state):
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "User-Agent": "Mozilla/5.0",
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://draw.ar-lottery01.com/",
     }
     all_records = []
     
-    # जर मेमरी आधीच भरलेली असेल, तर फक्त पहिले पेज (१) आणा (सुपर फास्ट). 
-    # जर मेमरी रिकामी असेल, तर ३ पेजेस आणा.
-    pages_to_fetch = [1] if len(state["full_history"]) >= 25 else [1, 2, 3]
-    
-    for pageNo in pages_to_fetch: 
-        params = {"pageSize": 10, "pageNo": pageNo, "ts": int(time.time() * 1000)}
+    # एकाच Request मध्ये भरपूर डेटा आणणे (Speed साठी)
+    try:
+        params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
+        response = requests.get(url, headers=headers, params=params, timeout=3)
+        if response.status_code == 200:
+            data = response.json()
+            if "data" in data and isinstance(data["data"], list): all_records.extend(data["data"])
+            elif "list" in data and isinstance(data["list"], list): all_records.extend(data["list"])
+            elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: all_records.extend(data["data"]["list"])
+    except Exception:
+        pass
+        
+    # जर API ने फक्त 10 रेकॉर्ड दिले आणि मेमरी रिकामी असेल, तर दुसरे पेज लगेच आणा
+    if len(all_records) <= 10 and len(state["full_history"]) < 20:
         try:
-            response = requests.get(url, headers=headers, params=params, timeout=4)
+            params = {"pageSize": 10, "pageNo": 2, "ts": int(time.time() * 1000)}
+            response = requests.get(url, headers=headers, params=params, timeout=3)
             if response.status_code == 200:
                 data = response.json()
-                recs = []
-                if "data" in data and isinstance(data["data"], list): recs = data["data"]
-                elif "list" in data and isinstance(data["list"], list): recs = data["list"]
-                elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: recs = data["data"]["list"]
-                all_records.extend(recs)
+                if "data" in data and isinstance(data["data"], list): all_records.extend(data["data"])
+                elif "list" in data and isinstance(data["list"], list): all_records.extend(data["list"])
+                elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: all_records.extend(data["data"]["list"])
         except Exception:
             pass
+            
     return all_records
 
 def process_strategy(state, records):
@@ -142,10 +149,9 @@ def process_strategy(state, records):
     latest_number_str = str(latest_item.get("number") or latest_item.get("drawNumber") or "-")
     
     if not (latest_number_str.isdigit() and latest_issue.isdigit()): return False
-    
     latest_bs = "Big" if int(latest_number_str) >= 5 else "Small"
 
-    # १. आलेले सर्व रेकॉर्ड्स मेमरीमध्ये सेव्ह करणे (डुप्लिकेट्स टाळून)
+    # सर्व रेकॉर्ड्स मेमरीमध्ये सेव्ह करणे
     for rec in records:
         iss = str(rec.get("issueNumber") or rec.get("issue") or "")
         num_str = str(rec.get("number") or rec.get("drawNumber") or "")
@@ -154,16 +160,15 @@ def process_strategy(state, records):
                 bs_val = "Big" if int(num_str) >= 5 else "Small"
                 state["full_history"].append({"issue": iss, "bs": bs_val})
                 
-    # मेमरी सॉर्ट करणे (सर्वात नवीन इश्यू वरती राहील)
     state["full_history"].sort(key=lambda x: int(x["issue"]), reverse=True)
-    state["full_history"] = state["full_history"][:60] # शेवटचे ६० राऊंड्स सेव्ह ठेवेल
+    state["full_history"] = state["full_history"][:60]
 
-    # --- Initial State ---
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
         
         next_issue_int = int(latest_issue) + 1
-        target_issue_str = str(next_issue_int - 20) 
+        # 🎯 EXACT FIX: (Current Issue - 19) हे तुम्हाला पेज २ च्या तळाशी दिसणारा अचूक २० वा राऊंड देईल.
+        target_issue_str = str(next_issue_int - 19) 
         
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         state["bs_pred"] = target_record["bs"] if target_record else "WAIT"
@@ -172,7 +177,6 @@ def process_strategy(state, records):
             send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["bs_level"])
         return True
 
-    # --- Processing New Issue ---
     if state["last_processed_issue"] != latest_issue:
         if int(latest_issue) <= int(state["last_processed_issue"]): return False  
 
@@ -200,9 +204,9 @@ def process_strategy(state, records):
             })
             if len(state["history"]) > 3: state["history"].pop(0)
 
-        # २. नवीन प्रेडिक्शन सेट करणे (अचूक २० वा राऊंड)
         next_issue_int = int(latest_issue) + 1
-        target_issue_str = str(next_issue_int - 20)
+        # 🎯 EXACT FIX: (Current Issue - 19)
+        target_issue_str = str(next_issue_int - 19)
         
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         state["bs_pred"] = target_record["bs"] if target_record else "WAIT"
@@ -217,10 +221,10 @@ def process_strategy(state, records):
 def worker_30s():
     url = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
     while True:
-        records = fetch_history_records(url, state_30s) # स्टेट पाठवणे गरजेचे आहे
+        records = fetch_history_records(url, state_30s)
         if records:
             process_strategy(state_30s, records)
-        time.sleep(1.5) # रिफ्रेश रेट थोडा फास्ट केला आहे
+        time.sleep(1) # 🚀 रिफ्रेश रेट 1 सेकंद केला आहे (फास्ट अपडेटसाठी)
 
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"

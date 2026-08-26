@@ -118,13 +118,15 @@ def fetch_data(url):
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://draw.ar-lottery01.com/",
     }
-    # Added pageSize to ensure we always get at least 20+ records for our strategy
-    params = {"ts": int(time.time() * 1000), "pageSize": 30}
+    # Changed to GET request with proper pagination query parameters
+    params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
     try:
         response = requests.get(url, headers=headers, params=params, timeout=10)
-        if response.status_code == 200: return response.json()
+        # print(f"[DEBUG] 1M API Status Code: {response.status_code}") # Optional print
+        if response.status_code == 200: 
+            return response.json()
     except Exception:
-        return None
+        pass
     return None
 
 def extract_records(data):
@@ -135,15 +137,14 @@ def extract_records(data):
     return []
 
 def process_strategy(state, records):
-    # Requirement: Must have at least 20 records to fetch the 20th round
-    if not records or len(records) < 20: return False
+    if not records: return False
     state["live_records"] = records[:5]
     
     latest_item = records[0]
     latest_issue = str(latest_item.get("issueNumber") or latest_item.get("issue") or "-")
     latest_number_str = str(latest_item.get("number") or latest_item.get("drawNumber") or "-")
     
-    prev_item = records[1]
+    prev_item = records[1] if len(records) > 1 else records[0]
     prev_number_str = str(prev_item.get("number") or prev_item.get("drawNumber") or "-")
     
     if latest_number_str.isdigit() and prev_number_str.isdigit():
@@ -158,11 +159,12 @@ def process_strategy(state, records):
         state["last_processed_issue"] = latest_issue
         
         # =======================================================
-        # 🚀 INITIAL PREDICTION (20th Round Signal)
+        # 🚀 INITIAL PREDICTION (20th Round Signal) Safe Indexing
         # =======================================================
-        round_20_item = records[19] # Index 19 is exactly the 20th round
+        target_idx = 19 if len(records) >= 20 else len(records) - 1
+        round_20_item = records[target_idx] 
         round_20_num = str(round_20_item.get("number") or round_20_item.get("drawNumber") or "0")
-        state["bs_pred"] = "Big" if int(round_20_num) >= 5 else "Small"
+        state["bs_pred"] = "Big" if round_20_num.isdigit() and int(round_20_num) >= 5 else "Small"
         
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
         if state["is_running"]:
@@ -220,11 +222,11 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 STRATEGY LOGIC (20th Round Signal) 🚀
+        # 🚀 STRATEGY LOGIC (20th Round Signal) Safe Indexing 🚀
         # =======================================================
         if state["bs_active"]:
-            # Always grab the 20th round result from the API and use it directly
-            round_20_item = records[19] 
+            target_idx = 19 if len(records) >= 20 else len(records) - 1
+            round_20_item = records[target_idx] 
             round_20_num = str(round_20_item.get("number") or round_20_item.get("drawNumber") or "0")
             if round_20_num.isdigit():
                 state["bs_pred"] = "Big" if int(round_20_num) >= 5 else "Small"

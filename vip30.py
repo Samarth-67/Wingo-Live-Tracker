@@ -26,7 +26,7 @@ def create_state(name, interval):
         "bs_pred": "WAIT", 
         "bs_level": 1, 
         
-        "full_history": [], # 🚀 बॉटची स्वतःची अचूक मेमरी
+        "full_history": [], 
         "history": [],
         "stats": {"bs_win": 0, "bs_fail": 0, "total_trades": 0},
         "is_running": False,       
@@ -38,7 +38,6 @@ state_30s = create_state("WinGo 30S", "30S")
 
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
-    # 🚀 Async Background Sending (मेसेज सुपरफास्ट जाईल)
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
@@ -96,7 +95,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     text += f"🎟️ *New Issue:* {issue}\n\n"
     
     if bs_pred == "WAIT":
-        text += f"⏳ *Building History Data...*\n_Waiting for issue {int(issue)-19} to sync..._\n"
+        text += f"⏳ *Building History Data...*\n_Waiting for issue {int(issue)-20} to sync..._\n"
     else:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
         text += f"📏 *Prediction:* *{bs_pred_text}*\n"
@@ -104,7 +103,6 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         
     send_telegram_message_direct(target_chat_id, text)
 
-# 🚀 Fast Memory Loader
 def fetch_history_records(url, state):
     headers = {
         "User-Agent": "Mozilla/5.0",
@@ -113,7 +111,6 @@ def fetch_history_records(url, state):
     }
     all_records = []
     
-    # एकाच Request मध्ये भरपूर डेटा आणणे (Speed साठी)
     try:
         params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
         response = requests.get(url, headers=headers, params=params, timeout=3)
@@ -125,7 +122,6 @@ def fetch_history_records(url, state):
     except Exception:
         pass
         
-    # जर API ने फक्त 10 रेकॉर्ड दिले आणि मेमरी रिकामी असेल, तर दुसरे पेज लगेच आणा
     if len(all_records) <= 10 and len(state["full_history"]) < 20:
         try:
             params = {"pageSize": 10, "pageNo": 2, "ts": int(time.time() * 1000)}
@@ -151,7 +147,6 @@ def process_strategy(state, records):
     if not (latest_number_str.isdigit() and latest_issue.isdigit()): return False
     latest_bs = "Big" if int(latest_number_str) >= 5 else "Small"
 
-    # सर्व रेकॉर्ड्स मेमरीमध्ये सेव्ह करणे
     for rec in records:
         iss = str(rec.get("issueNumber") or rec.get("issue") or "")
         num_str = str(rec.get("number") or rec.get("drawNumber") or "")
@@ -167,8 +162,8 @@ def process_strategy(state, records):
         state["last_processed_issue"] = latest_issue
         
         next_issue_int = int(latest_issue) + 1
-        # 🎯 EXACT FIX: (Current Issue - 19) हे तुम्हाला पेज २ च्या तळाशी दिसणारा अचूक २० वा राऊंड देईल.
-        target_issue_str = str(next_issue_int - 19) 
+        # 🎯 EXACT FIX: (Current Issue - 20) आता हे बरोबर २० राऊंड मागचा निकाल घेईल!
+        target_issue_str = str(next_issue_int - 20) 
         
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         state["bs_pred"] = target_record["bs"] if target_record else "WAIT"
@@ -205,8 +200,9 @@ def process_strategy(state, records):
             if len(state["history"]) > 3: state["history"].pop(0)
 
         next_issue_int = int(latest_issue) + 1
-        # 🎯 EXACT FIX: (Current Issue - 19)
-        target_issue_str = str(next_issue_int - 19)
+        
+        # 🎯 EXACT FIX: (Current Issue - 20)
+        target_issue_str = str(next_issue_int - 20)
         
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         state["bs_pred"] = target_record["bs"] if target_record else "WAIT"
@@ -224,7 +220,7 @@ def worker_30s():
         records = fetch_history_records(url, state_30s)
         if records:
             process_strategy(state_30s, records)
-        time.sleep(1) # 🚀 रिफ्रेश रेट 1 सेकंद केला आहे (फास्ट अपडेटसाठी)
+        time.sleep(1)
 
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"

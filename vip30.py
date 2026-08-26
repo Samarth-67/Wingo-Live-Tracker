@@ -38,11 +38,15 @@ state_30s = create_state("WinGo 30S", "30S")
 
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    try:
-        requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
-    except Exception:
-        pass
+    # 🚀 फास्ट मेसेज सेंडिंग (Background Thread)
+    def _send():
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        try:
+            requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
+        except Exception:
+            pass
+    # मेसेज पाठवण्यासाठी बॉट थांबणार नाही, बॅकग्राउंडमध्ये काम करेल
+    threading.Thread(target=_send, daemon=True).start()
 
 def telegram_listener():
     offset = 0
@@ -75,7 +79,7 @@ def telegram_listener():
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
         except Exception:
             pass
-        time.sleep(3)
+        time.sleep(2)
 
 def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     target_chat_id = TARGET_GROUP_ID
@@ -101,7 +105,8 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         
     send_telegram_message_direct(target_chat_id, text)
 
-def fetch_history_records(url):
+# 🚀 फास्ट API Fetching (स्मार्ट मेमरी लोडर)
+def fetch_history_records(url, state):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "Accept": "application/json, text/plain, */*",
@@ -109,11 +114,14 @@ def fetch_history_records(url):
     }
     all_records = []
     
-    # 3 पेजेस ट्राय करणे (डुप्लिकेट्स आपण खाली रिमूव्ह करू)
-    for pageNo in [1, 2, 3]: 
+    # जर मेमरी आधीच भरलेली असेल, तर फक्त पहिले पेज (१) आणा (सुपर फास्ट). 
+    # जर मेमरी रिकामी असेल, तर ३ पेजेस आणा.
+    pages_to_fetch = [1] if len(state["full_history"]) >= 25 else [1, 2, 3]
+    
+    for pageNo in pages_to_fetch: 
         params = {"pageSize": 10, "pageNo": pageNo, "ts": int(time.time() * 1000)}
         try:
-            response = requests.get(url, headers=headers, params=params, timeout=5)
+            response = requests.get(url, headers=headers, params=params, timeout=4)
             if response.status_code == 200:
                 data = response.json()
                 recs = []
@@ -137,7 +145,7 @@ def process_strategy(state, records):
     
     latest_bs = "Big" if int(latest_number_str) >= 5 else "Small"
 
-    # 🚀 १. आलेले सर्व रेकॉर्ड्स मेमरीमध्ये सेव्ह करणे (डुप्लिकेट्स टाळून)
+    # १. आलेले सर्व रेकॉर्ड्स मेमरीमध्ये सेव्ह करणे (डुप्लिकेट्स टाळून)
     for rec in records:
         iss = str(rec.get("issueNumber") or rec.get("issue") or "")
         num_str = str(rec.get("number") or rec.get("drawNumber") or "")
@@ -155,9 +163,8 @@ def process_strategy(state, records):
         state["last_processed_issue"] = latest_issue
         
         next_issue_int = int(latest_issue) + 1
-        target_issue_str = str(next_issue_int - 20) # बरोबर २० राऊंड पाठीमागे
+        target_issue_str = str(next_issue_int - 20) 
         
-        # मेमरी मधून शोधणे
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         state["bs_pred"] = target_record["bs"] if target_record else "WAIT"
         
@@ -171,7 +178,6 @@ def process_strategy(state, records):
 
         bs_res_status = "-"
         
-        # जर मागचा प्रेडिक्शन WAIT नव्हता, तरच निकाल लावणे
         if state["bs_pred"] != "WAIT":
             state["stats"]["total_trades"] += 1
             bs_win = (state["bs_pred"] == latest_bs)
@@ -194,7 +200,7 @@ def process_strategy(state, records):
             })
             if len(state["history"]) > 3: state["history"].pop(0)
 
-        # 🚀 २. नवीन प्रेडिक्शन सेट करणे (अचूक २० वा राऊंड)
+        # २. नवीन प्रेडिक्शन सेट करणे (अचूक २० वा राऊंड)
         next_issue_int = int(latest_issue) + 1
         target_issue_str = str(next_issue_int - 20)
         
@@ -211,10 +217,10 @@ def process_strategy(state, records):
 def worker_30s():
     url = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
     while True:
-        records = fetch_history_records(url)
+        records = fetch_history_records(url, state_30s) # स्टेट पाठवणे गरजेचे आहे
         if records:
             process_strategy(state_30s, records)
-        time.sleep(2) 
+        time.sleep(1.5) # रिफ्रेश रेट थोडा फास्ट केला आहे
 
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"

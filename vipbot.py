@@ -118,7 +118,8 @@ def fetch_data(url):
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://draw.ar-lottery01.com/",
     }
-    params = {"ts": int(time.time() * 1000)}
+    # Added pageSize to ensure we always get at least 20+ records for our strategy
+    params = {"ts": int(time.time() * 1000), "pageSize": 30}
     try:
         response = requests.get(url, headers=headers, params=params, timeout=10)
         if response.status_code == 200: return response.json()
@@ -134,7 +135,8 @@ def extract_records(data):
     return []
 
 def process_strategy(state, records):
-    if not records or len(records) < 2: return False
+    # Requirement: Must have at least 20 records to fetch the 20th round
+    if not records or len(records) < 20: return False
     state["live_records"] = records[:5]
     
     latest_item = records[0]
@@ -154,7 +156,14 @@ def process_strategy(state, records):
 
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
-        state["bs_pred"] = latest_bs
+        
+        # =======================================================
+        # 🚀 INITIAL PREDICTION (20th Round Signal)
+        # =======================================================
+        round_20_item = records[19] # Index 19 is exactly the 20th round
+        round_20_num = str(round_20_item.get("number") or round_20_item.get("drawNumber") or "0")
+        state["bs_pred"] = "Big" if int(round_20_num) >= 5 else "Small"
+        
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
         if state["is_running"]:
             send_telegram_signal(state, next_issue, state["bs_pred"], state["bs_level"])
@@ -211,11 +220,14 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 STRATEGY LOGIC (Pure Trend Follow for ALL Levels) 🚀
+        # 🚀 STRATEGY LOGIC (20th Round Signal) 🚀
         # =======================================================
         if state["bs_active"]:
-            # प्रत्येक ऍक्टिव्ह लेव्हलला फक्त मागचा आलेला निकाल (Trend Follow) लावायचा आहे.
-            state["bs_pred"] = latest_bs
+            # Always grab the 20th round result from the API and use it directly
+            round_20_item = records[19] 
+            round_20_num = str(round_20_item.get("number") or round_20_item.get("drawNumber") or "0")
+            if round_20_num.isdigit():
+                state["bs_pred"] = "Big" if int(round_20_num) >= 5 else "Small"
         # =======================================================
 
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
@@ -264,7 +276,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_1m = render_game_panel(state_1m)
     return Group(
-        Align.center("[bold yellow]🚀 1 MINUTE BOT (Pure Trend -> Stop L4+ -> Circle Match)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 1 MINUTE BOT (20th Round Strategy -> Stop L4+ -> Circle Match)[/bold yellow]\n"),
         Align.center(p_1m)
     )
 

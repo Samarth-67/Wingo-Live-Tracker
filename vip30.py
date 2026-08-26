@@ -114,19 +114,16 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
 def fetch_data(url):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Content-Type": "application/json;charset=UTF-8",
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://draw.ar-lottery01.com/",
     }
-    payload = {"pageSize": 30, "pageNo": 1}
+    # Changed back to GET request with query params for pageSize and pagination
+    params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
     try:
-        # Check both GET and POST or print status for debugging
-        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        response = requests.get(url, headers=headers, params=params, timeout=10)
         print(f"[DEBUG] API Status Code: {response.status_code}")
         if response.status_code == 200:
-            data = response.json()
-            print(f"[DEBUG] API Data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
-            return data
+            return response.json()
         else:
             print(f"[DEBUG] API Error Response: {response.text[:100]}")
     except Exception as e:

@@ -118,13 +118,19 @@ def fetch_data(url):
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://draw.ar-lottery01.com/",
     }
-    # Corrected to POST request with JSON body for proper pagination data retrieval
     payload = {"pageSize": 30, "pageNo": 1}
     try:
+        # Check both GET and POST or print status for debugging
         response = requests.post(url, headers=headers, json=payload, timeout=10)
-        if response.status_code == 200: return response.json()
-    except Exception:
-        return None
+        print(f"[DEBUG] API Status Code: {response.status_code}")
+        if response.status_code == 200:
+            data = response.json()
+            print(f"[DEBUG] API Data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+            return data
+        else:
+            print(f"[DEBUG] API Error Response: {response.text[:100]}")
+    except Exception as e:
+        print(f"[DEBUG] Fetch Exception: {e}")
     return None
 
 def extract_records(data):
@@ -135,7 +141,9 @@ def extract_records(data):
     return []
 
 def process_strategy(state, records):
-    if not records: return False
+    if not records: 
+        print("[DEBUG] Records list is empty!")
+        return False
     state["live_records"] = records[:5]
     
     latest_item = records[0]
@@ -151,12 +159,12 @@ def process_strategy(state, records):
         prev_num = int(prev_number_str)
         prev_bs = "Big" if prev_num >= 5 else "Small"
     else:
+        print(f"[DEBUG] Invalid number strings: latest={latest_number_str}, prev={prev_number_str}")
         return False
 
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
         
-        # Safe selection for 20th round (index 19) or fallback to available records
         target_idx = 19 if len(records) >= 20 else len(records) - 1
         round_20_item = records[target_idx]
         round_20_num = str(round_20_item.get("number") or round_20_item.get("drawNumber") or "0")

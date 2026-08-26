@@ -103,32 +103,38 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         
     send_telegram_message_direct(target_chat_id, text)
 
-def fetch_data(url):
+# 🔄 नविन Multi-Page Fetcher (API 10-10 चे रेकॉर्ड देत असल्यामुळे 3 पेजेस एकत्र डाउनलोड करेल)
+def fetch_history_records(url):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://draw.ar-lottery01.com/",
     }
-    params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
-    try:
-        response = requests.get(url, headers=headers, params=params, timeout=10)
-        # print(f"[DEBUG] API Status Code: {response.status_code}") # Optional debug print
-        if response.status_code == 200:
-            return response.json()
-    except Exception as e:
-        pass
-    return None
-
-def extract_records(data):
-    if not data: return []
-    if "data" in data and isinstance(data["data"], list): return data["data"]
-    elif "list" in data and isinstance(data["list"], list): return data["list"]
-    elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: return data["data"]["list"]
-    return []
+    all_records = []
+    
+    # 3 पेजेस लूप करून कमीत कमी 30 रेकॉर्ड्स मिळवणे
+    for pageNo in [1, 2, 3]: 
+        params = {"pageSize": 10, "pageNo": pageNo, "ts": int(time.time() * 1000)}
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                recs = []
+                if "data" in data and isinstance(data["data"], list): recs = data["data"]
+                elif "list" in data and isinstance(data["list"], list): recs = data["list"]
+                elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: recs = data["data"]["list"]
+                
+                all_records.extend(recs)
+        except Exception:
+            pass
+            
+    return all_records
 
 def process_strategy(state, records):
-    if not records: 
+    # आता आपल्याकडे 30 रेकॉर्ड्स असतील, त्यामुळे आपण अचूक 20 वा ट्रेड घेऊ शकतो.
+    if not records or len(records) < 20: 
         return False
+        
     state["live_records"] = records[:5]
     
     latest_item = records[0]
@@ -144,8 +150,8 @@ def process_strategy(state, records):
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
         
-        target_idx = 19 if len(records) >= 20 else len(records) - 1
-        round_20_item = records[target_idx]
+        # बरोबर 20 वा रेकॉर्ड (Index 19) निवडणे
+        round_20_item = records[19]
         round_20_num = str(round_20_item.get("number") or round_20_item.get("drawNumber") or "0")
         state["bs_pred"] = "Big" if round_20_num.isdigit() and int(round_20_num) >= 5 else "Small"
         
@@ -164,7 +170,7 @@ def process_strategy(state, records):
         bs_win = (state["bs_pred"] == latest_bs)
         bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
         
-        # --- जिंकले की लेव्हल १, हरले की पुढची लेव्हल ---
+        # --- जिंकले की लेव्हल १, हरले की पुढची लेव्हल (कंटिन्यूअस) ---
         if bs_win:
             state["stats"]["bs_win"] += 1
             state["bs_level"] = 1 
@@ -185,10 +191,9 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 STRATEGY LOGIC (फक्त विसाव्या राऊंडचा निकाल)
+        # 🚀 STRATEGY LOGIC: अचूक विसावा राऊंड (Index 19)
         # =======================================================
-        target_idx = 19 if len(records) >= 20 else len(records) - 1
-        round_20_item = records[target_idx] 
+        round_20_item = records[19] 
         round_20_num = str(round_20_item.get("number") or round_20_item.get("drawNumber") or "0")
         if round_20_num.isdigit():
             state["bs_pred"] = "Big" if int(round_20_num) >= 5 else "Small"
@@ -205,9 +210,8 @@ def process_strategy(state, records):
 def worker_30s():
     url = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
     while True:
-        data = fetch_data(url)
-        if data:
-            records = extract_records(data)
+        records = fetch_history_records(url) # नविन फंक्शन कॉल
+        if records:
             process_strategy(state_30s, records)
         time.sleep(2) 
 

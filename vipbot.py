@@ -23,16 +23,18 @@ def create_state(name, interval):
         "name": name,
         "interval": interval,
         "last_processed_issue": None,
-        "bs_pred": None, "bs_level": 1, "bs_active": True, "bs_fails_in_row": 0,
+        "bs_pred": None, 
+        "bs_level": 1, 
         
         "history": [],
-        "stats": {"bs_win": 0, "bs_fail": 0, "bs_skip": 0, "total_trades": 0},
+        "stats": {"bs_win": 0, "bs_fail": 0, "total_trades": 0},
         "is_running": False,       
         "active_chat_id": None,   
         "live_records": []
     }
 
-state_1m = create_state("WinGo 1M", "1M")
+# टीप: कोडमध्ये state_30s नाव वापरले आहे, मी तेच ठेवले आहे जेणेकरून तुम्हाला एरर येणार नाही.
+state_30s = create_state("WinGo 1M", "1M")
 
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
@@ -55,25 +57,25 @@ def telegram_listener():
                     chat_id = message.get("chat", {}).get("id")
                     text = message.get("text", "").strip()
 
-                    # --- START COMMANDS ---
+                    # --- START COMMAND ---
                     if text.startswith("/signal"):
                         parts = text.split()
                         if len(parts) == 2:
                             pwd = parts[1]
                             if pwd == PASS_1M:
-                                state_1m["is_running"] = True
-                                state_1m["active_chat_id"] = chat_id
+                                state_30s["is_running"] = True
+                                state_30s["active_chat_id"] = chat_id
                                 send_telegram_message_direct(chat_id, f"✅ *[1M Strategy] Activated! Live Prediction is ON.*")
                             else:
                                 send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                                 
-                    # --- STOP COMMANDS ---
+                    # --- STOP COMMAND ---
                     elif text.startswith("/stop"):
                         parts = text.split()
                         if len(parts) == 2:
                             pwd = parts[1]
                             if pwd == PASS_1M:
-                                state_1m["is_running"] = False
+                                state_30s["is_running"] = False
                                 send_telegram_message_direct(chat_id, "🛑 *[1M Strategy] Stopped Successfully!*")
                             else:
                                 send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
@@ -90,26 +92,16 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     
     if state["stats"]["total_trades"] > 0 and prev_bs_res:
         text += f"🔄 *Last Trade Result:*\n"
-        if "SKIP" in prev_bs_res: text += f"📏 B/S: ⏸️ *SKIPPED (Waiting for Trend)*\n"
-        else:
-            text += f"📏 B/S: *{prev_bs_res}*\n"
-            if "WIN" in prev_bs_res: text += f"\n🔥🎉 *CONGRATS! WIN!* 🎉🔥\n"
+        text += f"📏 B/S: *{prev_bs_res}*\n"
+        if "WIN" in prev_bs_res: text += f"\n🔥🎉 *CONGRATS! WIN!* 🎉🔥\n"
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
         
     text += f"🎟️ *New Issue:* {issue}\n\n"
     
-    if state["bs_active"]:
-        bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
-        text += f"📏 *Prediction:* *{bs_pred_text}*\n"
-        text += f"🎯 *Level:* L{bs_level}\n\n"
-    else:
-        # 🛑 डायनॅमिक स्टॉप मेसेज (लेव्हल ४ किंवा ५, ६ पुढे फेल झाल्यावर)
-        if state["bs_level"] > 4:
-            text += f"🛑 *TRADING STOP! (Level {state['bs_level'] - 1} Failed)* 🛑\n"
-            text += f"⏳ _Waiting for Circle Match to restart from Level {state['bs_level']}..._\n\n"
-        else:
-            text += f"📏 *Prediction:* ⏸️ *WAIT FOR PATTERN*\n\n"
-    
+    bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
+    text += f"📏 *Prediction:* *{bs_pred_text}*\n"
+    text += f"🎯 *Level:* L{bs_level}\n\n"
+        
     send_telegram_message_direct(target_chat_id, text)
 
 def fetch_data(url):
@@ -118,14 +110,13 @@ def fetch_data(url):
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://draw.ar-lottery01.com/",
     }
-    # Changed to GET request with proper pagination query parameters
     params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
     try:
         response = requests.get(url, headers=headers, params=params, timeout=10)
-        # print(f"[DEBUG] 1M API Status Code: {response.status_code}") # Optional print
-        if response.status_code == 200: 
+        # print(f"[DEBUG] API Status Code: {response.status_code}") # Debugging (optional)
+        if response.status_code == 200:
             return response.json()
-    except Exception:
+    except Exception as e:
         pass
     return None
 
@@ -137,32 +128,25 @@ def extract_records(data):
     return []
 
 def process_strategy(state, records):
-    if not records: return False
+    if not records: 
+        return False
     state["live_records"] = records[:5]
     
     latest_item = records[0]
     latest_issue = str(latest_item.get("issueNumber") or latest_item.get("issue") or "-")
     latest_number_str = str(latest_item.get("number") or latest_item.get("drawNumber") or "-")
     
-    prev_item = records[1] if len(records) > 1 else records[0]
-    prev_number_str = str(prev_item.get("number") or prev_item.get("drawNumber") or "-")
-    
-    if latest_number_str.isdigit() and prev_number_str.isdigit():
+    if latest_number_str.isdigit():
         number = int(latest_number_str)
         latest_bs = "Big" if number >= 5 else "Small"
-        prev_num = int(prev_number_str)
-        prev_bs = "Big" if prev_num >= 5 else "Small"
     else:
         return False
 
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
         
-        # =======================================================
-        # 🚀 INITIAL PREDICTION (20th Round Signal) Safe Indexing
-        # =======================================================
         target_idx = 19 if len(records) >= 20 else len(records) - 1
-        round_20_item = records[target_idx] 
+        round_20_item = records[target_idx]
         round_20_num = str(round_20_item.get("number") or round_20_item.get("drawNumber") or "0")
         state["bs_pred"] = "Big" if round_20_num.isdigit() and int(round_20_num) >= 5 else "Small"
         
@@ -172,65 +156,43 @@ def process_strategy(state, records):
         return True
 
     if state["last_processed_issue"] != latest_issue:
-        # =========================================================
-        # 🛡️ API CACHE FIX 
-        # =========================================================
         if state["last_processed_issue"].isdigit() and latest_issue.isdigit():
             if int(latest_issue) <= int(state["last_processed_issue"]):
                 return False  
-        # =========================================================
 
-        bs_res_status = "-"
         state["stats"]["total_trades"] += 1
         
-        # --- आधी जुन्या ट्रेडचा निकाल चेक करणे ---
-        if state["bs_active"]:
-            bs_win = (state["bs_pred"] == latest_bs)
-            bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
-            if bs_win:
-                state["stats"]["bs_win"] += 1
-                state["bs_level"] = 1 # जिंकल्यावर पुन्हा लेव्हल १ वर येईल
-                state["bs_fails_in_row"] = 0 
-                bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
-            else:
-                state["stats"]["bs_fail"] += 1
-                state["bs_level"] += 1
-                state["bs_fails_in_row"] += 1 
-                bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
-                
-                # 🛑 STOP LOSS: जर लेव्हल ४ किंवा त्यापुढील कोणतीही लेव्हल (उदा. ५, ६, ७) फेल झाली, तर थांबायचे
-                if state["bs_level"] > 4:
-                    state["bs_active"] = False
+        bs_win = (state["bs_pred"] == latest_bs)
+        bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
+        
+        # --- जिंकले की लेव्हल १, हरले की पुढची लेव्हल ---
+        if bs_win:
+            state["stats"]["bs_win"] += 1
+            state["bs_level"] = 1 
+            bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
         else:
-            state["stats"]["bs_skip"] += 1
-            bs_res_status = "SKIP"
-            
-            # 🔄 जर बॉट थांबला असेल आणि Circle ला Circle मॅच झाला (Big-Big किंवा Small-Small)
-            if latest_bs == prev_bs:
-                state["bs_active"] = True
-                state["bs_fails_in_row"] = 0 
-                # (इथे state["bs_level"] आधीचीच राहील, म्हणजे L5, L6, L7 जी असेल ती पुढे सुरु राहील)
+            state["stats"]["bs_fail"] += 1
+            state["bs_level"] += 1
+            bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
                 
-        bs_disp_pred = state["bs_pred"] if state["bs_active"] else "[yellow]WAIT[/]"
-        bs_disp_lvl = f"L{state['bs_level']}" if state["bs_active"] else f"L{state['bs_level']}(Hold)"
+        bs_disp_pred = state["bs_pred"] 
+        bs_disp_lvl = f"L{state['bs_level']}"
         
         state["history"].append({
             "trade": state["stats"]["total_trades"], "issue": latest_issue[-4:],
             "bs_level": bs_disp_lvl, "bs_pred": bs_disp_pred,
-            "bs_res": "[green]WIN[/]" if "WIN" in bs_res_status else ("[yellow]SKIP[/]" if "SKIP" in bs_res_status else "[red]FAIL[/]")
+            "bs_res": "[green]WIN[/]" if "WIN" in bs_res_status else "[red]FAIL[/]"
         })
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 STRATEGY LOGIC (20th Round Signal) Safe Indexing 🚀
+        # 🚀 STRATEGY LOGIC (फक्त विसाव्या राऊंडचा निकाल)
         # =======================================================
-        if state["bs_active"]:
-            target_idx = 19 if len(records) >= 20 else len(records) - 1
-            round_20_item = records[target_idx] 
-            round_20_num = str(round_20_item.get("number") or round_20_item.get("drawNumber") or "0")
-            if round_20_num.isdigit():
-                state["bs_pred"] = "Big" if int(round_20_num) >= 5 else "Small"
-        # =======================================================
+        target_idx = 19 if len(records) >= 20 else len(records) - 1
+        round_20_item = records[target_idx] 
+        round_20_num = str(round_20_item.get("number") or round_20_item.get("drawNumber") or "0")
+        if round_20_num.isdigit():
+            state["bs_pred"] = "Big" if int(round_20_num) >= 5 else "Small"
 
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
         
@@ -241,25 +203,26 @@ def process_strategy(state, records):
         return True
     return False
 
-def worker_1m():
+def worker_30s():
     url = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
     while True:
         data = fetch_data(url)
         if data:
             records = extract_records(data)
-            process_strategy(state_1m, records)
-        time.sleep(5)
+            process_strategy(state_30s, records)
+        time.sleep(2) 
 
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
     bs_color = "dark_orange" if state["bs_pred"] == "Big" else "bright_blue"
     
-    ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})" if state["bs_active"] else f"[yellow]WAIT[/] (Pending Circle Match for L{state['bs_level']})"
+    ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
-    panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n📏 [bold]Pred:[/] {ui_text}\n🕒 [bold]Status:[/] {timer_status}\n\n"
-    panel_text += f"📊 [bold]W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/] | [bold]S:[/] [yellow]{state['stats']['bs_skip']}[/]\n"
+    panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n📏 [bold]Pred:[/] {ui_text}\n"
+    panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
+    panel_text += f"📊 [bold]W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/]\n"
     
     hist_table = Table(show_header=False, width=40)
     hist_table.add_column("Issue", justify="center")
@@ -276,17 +239,17 @@ def render_game_panel(state):
     return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']}[/]", border_style="cyan", width=45)
 
 def create_master_ui():
-    p_1m = render_game_panel(state_1m)
+    p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 1 MINUTE BOT (20th Round Strategy -> Stop L4+ -> Circle Match)[/bold yellow]\n"),
-        Align.center(p_1m)
+        Align.center("[bold yellow]🚀 1 MINUTE BOT (Pure 20th Round Strategy - Continuous Levels)[/bold yellow]\n"),
+        Align.center(p_30s)
     )
 
 if __name__ == "__main__":
     t_list = threading.Thread(target=telegram_listener, daemon=True)
-    t_1m = threading.Thread(target=worker_1m, daemon=True)
+    t_30s = threading.Thread(target=worker_30s, daemon=True)
     
-    t_list.start(); t_1m.start()
+    t_list.start(); t_30s.start()
 
     with Live(create_master_ui(), console=console, refresh_per_second=2, screen=False) as live:
         while True:

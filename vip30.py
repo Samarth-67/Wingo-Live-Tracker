@@ -100,11 +100,9 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     
     if state["bs_active"]:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
-        
         text += f"📏 *Prediction:* *{bs_pred_text}*\n"
         text += f"🎯 *Level:* L{bs_level}\n\n"
     else:
-        # 🛑 डायनॅमिक स्टॉप मेसेज (लेव्हल ४ किंवा ५, ६ पुढे फेल झाल्यावर)
         if state["bs_level"] > 4:
             text += f"🛑 *TRADING STOP! (Level {state['bs_level'] - 1} Failed)* 🛑\n"
             text += f"⏳ _Waiting for Circle Match to restart from Level {state['bs_level']}..._\n\n"
@@ -116,13 +114,14 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
 def fetch_data(url):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Content-Type": "application/json;charset=UTF-8",
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://draw.ar-lottery01.com/",
     }
-    # Added pageSize to ensure we always get at least 20+ records for our strategy
-    params = {"ts": int(time.time() * 1000), "pageSize": 30}
+    # Corrected to POST request with JSON body for proper pagination data retrieval
+    payload = {"pageSize": 30, "pageNo": 1}
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
         if response.status_code == 200: return response.json()
     except Exception:
         return None
@@ -136,15 +135,14 @@ def extract_records(data):
     return []
 
 def process_strategy(state, records):
-    # Requirement: Must have at least 20 records to fetch the 20th round
-    if not records or len(records) < 20: return False
+    if not records: return False
     state["live_records"] = records[:5]
     
     latest_item = records[0]
     latest_issue = str(latest_item.get("issueNumber") or latest_item.get("issue") or "-")
     latest_number_str = str(latest_item.get("number") or latest_item.get("drawNumber") or "-")
     
-    prev_item = records[1]
+    prev_item = records[1] if len(records) > 1 else records[0]
     prev_number_str = str(prev_item.get("number") or prev_item.get("drawNumber") or "-")
     
     if latest_number_str.isdigit() and prev_number_str.isdigit():
@@ -158,12 +156,11 @@ def process_strategy(state, records):
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
         
-        # =======================================================
-        # 🚀 INITIAL PREDICTION (20th Round Signal)
-        # =======================================================
-        round_20_item = records[19] # Index 19 is exactly the 20th round
+        # Safe selection for 20th round (index 19) or fallback to available records
+        target_idx = 19 if len(records) >= 20 else len(records) - 1
+        round_20_item = records[target_idx]
         round_20_num = str(round_20_item.get("number") or round_20_item.get("drawNumber") or "0")
-        state["bs_pred"] = "Big" if int(round_20_num) >= 5 else "Small"
+        state["bs_pred"] = "Big" if round_20_num.isdigit() and int(round_20_num) >= 5 else "Small"
         
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
         if state["is_running"]:
@@ -171,24 +168,19 @@ def process_strategy(state, records):
         return True
 
     if state["last_processed_issue"] != latest_issue:
-        # =========================================================
-        # 🛡️ API CACHE FIX 
-        # =========================================================
         if state["last_processed_issue"].isdigit() and latest_issue.isdigit():
             if int(latest_issue) <= int(state["last_processed_issue"]):
                 return False  
-        # =========================================================
 
         bs_res_status = "-"
         state["stats"]["total_trades"] += 1
         
-        # --- आधी जुन्या ट्रेडचा निकाल चेक करणे ---
         if state["bs_active"]:
             bs_win = (state["bs_pred"] == latest_bs)
             bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
             if bs_win:
                 state["stats"]["bs_win"] += 1
-                state["bs_level"] = 1 # जिंकल्यावर पुन्हा लेव्हल १ वर येईल
+                state["bs_level"] = 1 
                 state["bs_fails_in_row"] = 0 
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
             else:
@@ -197,18 +189,15 @@ def process_strategy(state, records):
                 state["bs_fails_in_row"] += 1 
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
                 
-                # 🛑 STOP LOSS: जर लेव्हल ४ किंवा त्यापुढील कोणतीही लेव्हल (उदा. ५, ६, ७) फेल झाली, तर थांबायचे
                 if state["bs_level"] > 4:
                     state["bs_active"] = False
         else:
             state["stats"]["bs_skip"] += 1
             bs_res_status = "SKIP"
             
-            # 🔄 जर बॉट थांबला असेल आणि Circle ला Circle मॅच झाला (Big-Big किंवा Small-Small)
             if latest_bs == prev_bs:
                 state["bs_active"] = True
                 state["bs_fails_in_row"] = 0 
-                # (इथे state["bs_level"] आधीचीच ठेवली आहे, म्हणजे L5, L6, L7 जी असेल ती पुढे सुरु राहील)
                 
         bs_disp_pred = state["bs_pred"] if state["bs_active"] else "[yellow]WAIT[/]"
         bs_disp_lvl = f"L{state['bs_level']}" if state["bs_active"] else f"L{state['bs_level']}(Hold)"
@@ -220,16 +209,12 @@ def process_strategy(state, records):
         })
         if len(state["history"]) > 3: state["history"].pop(0)
 
-        # =======================================================
-        # 🚀 STRATEGY LOGIC (20th Round Signal) 🚀
-        # =======================================================
         if state["bs_active"]:
-            # Always grab the 20th round result from the API and use it directly
-            round_20_item = records[19] 
+            target_idx = 19 if len(records) >= 20 else len(records) - 1
+            round_20_item = records[target_idx] 
             round_20_num = str(round_20_item.get("number") or round_20_item.get("drawNumber") or "0")
             if round_20_num.isdigit():
                 state["bs_pred"] = "Big" if int(round_20_num) >= 5 else "Small"
-        # =======================================================
 
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
         

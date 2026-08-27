@@ -38,6 +38,7 @@ state_30s = create_state("WinGo 30S", "30S")
 
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
+    # 🚀 Async Background Sending (मेसेज अजिबात अडकणार नाही)
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
@@ -111,6 +112,7 @@ def fetch_history_records(url, state):
     }
     all_records = []
     
+    # आधी ३० रेकॉर्ड्स एकत्र आणण्याचा प्रयत्न
     try:
         params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
         response = requests.get(url, headers=headers, params=params, timeout=3)
@@ -122,17 +124,19 @@ def fetch_history_records(url, state):
     except Exception:
         pass
         
-    if len(all_records) <= 10 and len(state["full_history"]) < 20:
-        try:
-            params = {"pageSize": 10, "pageNo": 2, "ts": int(time.time() * 1000)}
-            response = requests.get(url, headers=headers, params=params, timeout=3)
-            if response.status_code == 200:
-                data = response.json()
-                if "data" in data and isinstance(data["data"], list): all_records.extend(data["data"])
-                elif "list" in data and isinstance(data["list"], list): all_records.extend(data["list"])
-                elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: all_records.extend(data["data"]["list"])
-        except Exception:
-            pass
+    # जर API ने फक्त १० च रेकॉर्ड्स दिले, तर पेज २ आणि ३ पण आणेल (म्हणजे २० वा राऊंड नेहमी सेफ राहील)
+    if len(all_records) <= 10:
+        for p in [2, 3]:
+            try:
+                params = {"pageSize": 10, "pageNo": p, "ts": int(time.time() * 1000)}
+                response = requests.get(url, headers=headers, params=params, timeout=2)
+                if response.status_code == 200:
+                    data = response.json()
+                    if "data" in data and isinstance(data["data"], list): all_records.extend(data["data"])
+                    elif "list" in data and isinstance(data["list"], list): all_records.extend(data["list"])
+                    elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: all_records.extend(data["data"]["list"])
+            except Exception:
+                pass
             
     return all_records
 
@@ -147,6 +151,7 @@ def process_strategy(state, records):
     if not (latest_number_str.isdigit() and latest_issue.isdigit()): return False
     latest_bs = "Big" if int(latest_number_str) >= 5 else "Small"
 
+    # सर्व रेकॉर्ड्स मेमरीमध्ये सेव्ह करणे
     for rec in records:
         iss = str(rec.get("issueNumber") or rec.get("issue") or "")
         num_str = str(rec.get("number") or rec.get("drawNumber") or "")
@@ -156,17 +161,22 @@ def process_strategy(state, records):
                 state["full_history"].append({"issue": iss, "bs": bs_val})
                 
     state["full_history"].sort(key=lambda x: int(x["issue"]), reverse=True)
-    state["full_history"] = state["full_history"][:60]
+    state["full_history"] = state["full_history"][:60] # मेमरीमध्ये ६० राऊंड्स सुरक्षित राहतील
 
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
-        
         next_issue_int = int(latest_issue) + 1
-        # 🎯 EXACT FIX: (Current Issue - 20) आता हे बरोबर २० राऊंड मागचा निकाल घेईल!
         target_issue_str = str(next_issue_int - 20) 
         
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
-        state["bs_pred"] = target_record["bs"] if target_record else "WAIT"
+        
+        # 🚀 ANTI-WAIT SYSTEM: जर अचूक नंबर नाही सापडला पण मेमरीमध्ये २० रेकॉर्ड्स आहेत, तर थेट २० वा रेकॉर्ड उचलून घे!
+        if target_record:
+            state["bs_pred"] = target_record["bs"]
+        elif len(state["full_history"]) >= 20:
+            state["bs_pred"] = state["full_history"][19]["bs"] 
+        else:
+            state["bs_pred"] = "WAIT"
         
         if state["is_running"]:
             send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["bs_level"])
@@ -200,12 +210,17 @@ def process_strategy(state, records):
             if len(state["history"]) > 3: state["history"].pop(0)
 
         next_issue_int = int(latest_issue) + 1
-        
-        # 🎯 EXACT FIX: (Current Issue - 20)
         target_issue_str = str(next_issue_int - 20)
         
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
-        state["bs_pred"] = target_record["bs"] if target_record else "WAIT"
+        
+        # 🚀 ANTI-WAIT SYSTEM (पुन्हा कधीच थांबणार नाही)
+        if target_record:
+            state["bs_pred"] = target_record["bs"]
+        elif len(state["full_history"]) >= 20:
+            state["bs_pred"] = state["full_history"][19]["bs"] # २० वा रेकॉर्ड घेईल
+        else:
+            state["bs_pred"] = "WAIT"
 
         if state["is_running"]:
             send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["bs_level"], bs_res_status)
@@ -254,7 +269,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S BOT (Exact 20th Round Tracking)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S BOT (Exact 20th Round Tracking + Anti-Wait)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 
@@ -268,3 +283,4 @@ if __name__ == "__main__":
         while True:
             live.update(create_master_ui())
             time.sleep(1)
+            

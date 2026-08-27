@@ -7,14 +7,14 @@ from flask import Flask, render_template_string, jsonify
 app = Flask(__name__)
 
 # ---------------- TELEGRAM BOT CONFIGURATION ----------------
-TELEGRAM_BOT_TOKEN = "8577275461:AAF8lWPac3WCgbHp8XPvU_lO289oHcMdOE8" 
-TARGET_GROUP_ID = "-5202202128"  
-PASS_30S = "11111"   
+TELEGRAM_BOT_TOKEN = "8886107397:AAHENOebGnrupxvGKqKh5cKC3SmujXJOV3w" # तुझा 1M चा अचूक टोकन
+TARGET_GROUP_ID = "-1004370895879"  # तुझा My Home Group चा आयडी
+SECRET_PASSWORD = "12345"   # 1M चा पासवर्ड
 # ------------------------------------------------------------
 
 # 🚀 Global State for Logic & Dashboard
 bot_state = {
-    "name": "WinGo 30S",
+    "name": "WinGo 1M",
     "last_processed_issue": "Waiting...",
     "bs_pred": "WAIT", 
     "bs_level": 1, 
@@ -60,17 +60,17 @@ def telegram_listener():
 
                     if text.startswith("/signal"):
                         parts = text.split()
-                        if len(parts) == 2 and parts[1] == PASS_30S:
+                        if len(parts) == 2 and parts[1] == SECRET_PASSWORD:
                             bot_state["is_running"] = True
-                            send_telegram_message_direct(chat_id, f"✅ *[30S Strategy] Activated! Live Prediction is ON.*\n💰 *Initial Fund:* ₹20,000")
+                            send_telegram_message_direct(chat_id, f"✅ *[1M Strategy] Activated! Live Prediction is ON.*\n💰 *Initial Fund:* ₹20,000")
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                                 
                     elif text.startswith("/stop"):
                         parts = text.split()
-                        if len(parts) == 2 and parts[1] == PASS_30S:
+                        if len(parts) == 2 and parts[1] == SECRET_PASSWORD:
                             bot_state["is_running"] = False
-                            send_telegram_message_direct(chat_id, "🛑 *[30S Strategy] Stopped Successfully!*")
+                            send_telegram_message_direct(chat_id, "🛑 *[1M Strategy] Stopped Successfully!*")
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
         except Exception:
@@ -81,7 +81,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
     target_chat_id = TARGET_GROUP_ID
     if not target_chat_id: return
 
-    text = f"🚀 *VSR WINGO 30S Trend Follower* 🚀\n\n"
+    text = f"🚀 *VSR WINGO Signals 1 Minute* 🚀\n\n"
     
     if state["total_trades"] > 0 and prev_bs_res and prev_bs_res != "-":
         text += f"🔄 *Last Trade Result:*\n"
@@ -89,7 +89,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         if "WIN" in prev_bs_res: text += f"\n🔥🎉 *CONGRATS! WIN!* 🎉🔥\n"
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
         
-    text += f"🎟️ *New Issue:* {issue}\n"
+    text += f"🎟️ *Prediction For Ticket:* {issue}\n"
     text += f"💰 *Total Balance:* ₹{state['balance']:.2f}\n\n"
     
     if bs_pred == "WAIT":
@@ -98,7 +98,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
         current_bet = state["bet_amounts"].get(bs_level, 0)
         
-        text += f"📏 *Prediction:* *{bs_pred_text}*\n"
+        text += f"📏 *B/S Pred:* *{bs_pred_text}*\n"
         text += f"🎯 *Level:* L{bs_level}\n"
         
         if current_bet > 0:
@@ -247,19 +247,20 @@ def process_strategy(state, records):
     return False
 
 def background_bot_loop():
-    url = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
+    # 🚀 अचूक 1 Minute API लिंक
+    url = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
     while True:
         records = fetch_history_records(url, bot_state)
         if records:
             process_strategy(bot_state, records)
-        time.sleep(1)
+        time.sleep(3) # 1M गेमसाठी 3 सेकंदाचा रिफ्रेश योग्य आहे
 
 # ----------------- WEB DASHBOARD TEMPLATE -----------------
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>VSR 30S Manager Dashboard</title>
+    <title>VSR 1M Manager Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body { background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', Tahoma, sans-serif; text-align: center; padding: 20px; }
@@ -277,7 +278,7 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="card">
-        <h1>🚀 VSR 30S Manager</h1>
+        <h1>🚀 VSR 1M Manager</h1>
         <div class="subtitle">
             Bot Status: <span id="timer_status" class="status-badge">INACTIVE</span>
         </div>
@@ -352,22 +353,3 @@ HTML_TEMPLATE = """
     </script>
 </body>
 </html>
-"""
-
-@app.route('/')
-def index():
-    return render_template_string(HTML_TEMPLATE)
-
-@app.route('/data')
-def get_data():
-    return jsonify(bot_state)
-
-if __name__ == '__main__':
-    t1 = threading.Thread(target=background_bot_loop, daemon=True)
-    t1.start()
-    
-    t2 = threading.Thread(target=telegram_listener, daemon=True)
-    t2.start()
-    
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)

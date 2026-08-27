@@ -24,9 +24,11 @@ def create_state(name, interval):
         "bs_pred": "WAIT", 
         "bs_level": 1, 
         
-        # 💰 फंड मॅनेजमेंट (Virtual Wallet & Safe Mode)
+        # 💰 फंड मॅनेजमेंट (Virtual Wallet, Safe Mode & Auto-Withdrawal)
         "balance": 20000.0,  # सुरुवातीचा फंड
         "bet_amounts": {1: 100, 2: 200, 3: 500, 4: 1000}, # लेव्हल नुसार रक्कम
+        "total_withdrawn": 0.0, # एकूण काढलेली रक्कम
+        "withdrawal_count": 0,  # किती वेळा काढले
         
         "full_history": [], # 🚀 बॉटची स्वतःची अचूक मेमरी
         "history": [],
@@ -62,6 +64,7 @@ def telegram_listener():
                     chat_id = message.get("chat", {}).get("id")
                     text = message.get("text", "").strip()
 
+                    # 🟢 START BOT
                     if text.startswith("/signal"):
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == PASS_30S:
@@ -71,11 +74,25 @@ def telegram_listener():
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                                 
+                    # 🔴 STOP BOT
                     elif text.startswith("/stop"):
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == PASS_30S:
                             state_30s["is_running"] = False
                             send_telegram_message_direct(chat_id, "🛑 *[30S Strategy] Stopped Successfully!*")
+                        else:
+                            send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
+                    
+                    # 🔄 RESET WALLET COMMAND
+                    elif text.startswith("/reset"):
+                        parts = text.split()
+                        if len(parts) == 2 and parts[1] == PASS_30S:
+                            state_30s["balance"] = 20000.0
+                            state_30s["total_withdrawn"] = 0.0
+                            state_30s["withdrawal_count"] = 0
+                            state_30s["bs_level"] = 1
+                            state_30s["bs_pred"] = "WAIT"
+                            send_telegram_message_direct(chat_id, "🔄 *Wallet Reset Successfully!*\n💰 *Current Balance:* ₹20,000\n🏦 *Withdrawal History Cleared.*")
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
         except Exception:
@@ -96,7 +113,12 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
         
     text += f"🎟️ *New Issue:* {issue}\n"
-    text += f"💰 *Total Balance:* ₹{state['balance']:.2f}\n\n"
+    text += f"💰 *Current Balance:* ₹{state['balance']:.2f}\n"
+    
+    # जर विड्रॉवल झाले असेल तरच दाखवा
+    if state['total_withdrawn'] > 0:
+        text += f"🏦 *Total Withdrawn:* ₹{state['total_withdrawn']:.0f} ({state['withdrawal_count']} times)\n"
+    text += "\n"
     
     if bs_pred == "WAIT":
         text += f"⏳ *Building History Data...*\n_Waiting for issue {int(issue)-20} to sync..._\n"
@@ -231,7 +253,14 @@ def process_strategy(state, records):
                 # हरल्यावर पुढची लेव्हल घेणे (५, ६, ७... Virtual मध्ये चालत राहील)
                 old_level = state["bs_level"]
                 state["bs_level"] += 1
-                    
+            
+            # 🏦 AUTO-WITHDRAWAL LOGIC (₹4000 Profit Target)
+            while state["balance"] >= 24000.0:
+                state["balance"] -= 4000.0
+                state["total_withdrawn"] += 4000.0
+                state["withdrawal_count"] += 1
+                bs_res_status += "\n🎉 *AUTO-WITHDRAW: ₹4000 Transferred!*"
+
             state["history"].append({
                 "trade": state["stats"]["total_trades"], "issue": latest_issue[-4:],
                 "bs_level": f"L{old_level}", 
@@ -281,6 +310,10 @@ def render_game_panel(state):
     
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n📏 [bold]Pred:[/] {ui_text}\n"
     panel_text += f"💰 [bold green]Wallet:[/] ₹{state['balance']:.2f}\n"
+    
+    if state['total_withdrawn'] > 0:
+        panel_text += f"🏦 [bold magenta]Withdrawn:[/] ₹{state['total_withdrawn']:.0f} ({state['withdrawal_count']}x)\n"
+        
     panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
     panel_text += f"📊 [bold]W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/]\n"
     

@@ -19,11 +19,13 @@ bot_state = {
     "bs_pred": "WAIT", 
     "bs_level": 1, 
     
-    # 💰 फंड मॅनेजमेंट (Virtual Wallet & Safe Mode)
+    # 💰 फंड मॅनेजमेंट (Virtual Wallet, Safe Mode & Auto-Withdrawal)
     "balance": 20000.0,  
-    "bet_amounts": {1: 100, 2: 200, 3: 500, 4: 1000}, # लेव्हल ५ ला ० रुपये लागतील
+    "bet_amounts": {1: 100, 2: 200, 3: 500, 4: 1000}, # लेव्हल ५ ला ० रुपये
+    "total_withdrawn": 0.0, # एकूण काढलेली रक्कम
+    "withdrawal_count": 0,  # किती वेळा काढले
     
-    "full_history": [], # 🚀 बॉटची स्वतःची अचूक मेमरी
+    "full_history": [], 
     "history": [],
     "bs_win": 0, 
     "bs_fail": 0, 
@@ -35,7 +37,6 @@ bot_state = {
 
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
-    # 🚀 Async Background Sending (मेसेज फास्ट जाईल, बॉट थांबणार नाही)
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         try:
@@ -90,7 +91,12 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
         
     text += f"🎟️ *Prediction For Ticket:* {issue}\n"
-    text += f"💰 *Total Balance:* ₹{state['balance']:.2f}\n\n"
+    text += f"💰 *Current Balance:* ₹{state['balance']:.2f}\n"
+    
+    # जर विड्रॉवल झाले असेल तरच दाखवा
+    if state['total_withdrawn'] > 0:
+        text += f"🏦 *Total Withdrawn:* ₹{state['total_withdrawn']:.0f} ({state['withdrawal_count']} times)\n"
+    text += "\n"
     
     if bs_pred == "WAIT":
         text += f"⏳ *Building History Data...*\n_Waiting for issue {int(issue)-20} to sync..._\n"
@@ -152,7 +158,6 @@ def process_strategy(state, records):
     if not (latest_number_str.isdigit() and latest_issue.isdigit()): return False
     latest_bs = "Big" if int(latest_number_str) >= 5 else "Small"
 
-    # सर्व रेकॉर्ड्स मेमरीमध्ये सेव्ह करणे
     for rec in records:
         iss = str(rec.get("issueNumber") or rec.get("issue") or "")
         num_str = str(rec.get("number") or rec.get("drawNumber") or "")
@@ -217,7 +222,14 @@ def process_strategy(state, records):
                 
                 old_level = state["bs_level"]
                 state["bs_level"] += 1
-                    
+            
+            # 🏦 AUTO-WITHDRAWAL LOGIC (₹4000 Profit Target)
+            while state["balance"] >= 24000.0:
+                state["balance"] -= 4000.0
+                state["total_withdrawn"] += 4000.0
+                state["withdrawal_count"] += 1
+                bs_res_status += "\n🎉 *AUTO-WITHDRAW: ₹4000 Transferred!*"
+
             state["history"].append({
                 "trade": state["total_trades"], "issue": latest_issue[-4:],
                 "bs_level": f"L{old_level}", 
@@ -247,13 +259,12 @@ def process_strategy(state, records):
     return False
 
 def background_bot_loop():
-    # 🚀 अचूक 1 Minute API लिंक
     url = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
     while True:
         records = fetch_history_records(url, bot_state)
         if records:
             process_strategy(bot_state, records)
-        time.sleep(3) # 1M गेमसाठी 3 सेकंदाचा रिफ्रेश योग्य आहे
+        time.sleep(3) 
 
 # ----------------- WEB DASHBOARD TEMPLATE -----------------
 HTML_TEMPLATE = """
@@ -271,6 +282,7 @@ HTML_TEMPLATE = """
         .wallet-amt { font-size: 28px; color: #4ade80; font-weight: bold; margin: 5px 0;}
         .metric { background: #334155; margin: 10px 0; padding: 12px; border-radius: 10px; font-size: 15px; text-align: left; display: flex; justify-content: space-between; align-items: center; }
         .highlight { color: #38bdf8; font-weight: bold; font-size: 16px; }
+        .withdraw-highlight { color: #f43f5e; font-weight: bold; font-size: 16px; }
         .result-box { background: #0f172a; margin-top: 15px; padding: 12px; border-radius: 8px; font-size: 14px; color: #cbd5e1; text-align: left; border-left: 4px solid #facc15; }
         .status-badge { background: #ef4444; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
         .status-active { background: #22c55e; }
@@ -292,6 +304,9 @@ HTML_TEMPLATE = """
         <div class="metric"><span>🎟️ Next Ticket:</span> <span class="highlight" id="last_issue">Loading...</span></div>
         <div class="metric"><span>📏 Prediction:</span> <span class="highlight" id="bs_info">-</span></div>
         <div class="metric"><span>💵 Bet Amount:</span> <span class="highlight" style="color:#facc15;" id="bet_info">₹ 0</span></div>
+        
+        <!-- नविन विड्रॉवल ब्लॉक -->
+        <div class="metric"><span>🏦 Total Withdrawn:</span> <span class="withdraw-highlight" id="withdrawn_info">₹ 0 (0x)</span></div>
         
         <div class="result-box" id="last_result">
             <b>📊 Last Trade Status:</b><br>Initializing...
@@ -320,6 +335,9 @@ HTML_TEMPLATE = """
                     document.getElementById('w_cnt').innerText = data.bs_win;
                     document.getElementById('f_cnt').innerText = data.bs_fail;
                     
+                    // अपडेट विड्रॉवल
+                    document.getElementById('withdrawn_info').innerText = "₹ " + data.total_withdrawn + " (" + data.withdrawal_count + " times)";
+                    
                     let current_bet = 0;
                     if(data.bs_level <= 4) {
                         if(data.bs_level === 1) current_bet = 100;
@@ -336,7 +354,9 @@ HTML_TEMPLATE = """
                         document.getElementById('bet_info').innerText = "₹ " + current_bet;
                     }
                     
-                    document.getElementById('last_result').innerHTML = "<b>📊 Last Trade Status:</b><br>" + data.last_result_text;
+                    // Replace newlines with <br> for HTML rendering
+                    let formatted_result = data.last_result_text.replace(/\\n/g, "<br>");
+                    document.getElementById('last_result').innerHTML = "<b>📊 Last Trade Status:</b><br>" + formatted_result;
                     
                     const statusBadge = document.getElementById('timer_status');
                     if (data.is_running) {

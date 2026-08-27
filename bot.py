@@ -7,9 +7,9 @@ from flask import Flask, render_template_string, jsonify
 app = Flask(__name__)
 
 # ---------------- TELEGRAM BOT CONFIGURATION ----------------
-TELEGRAM_BOT_TOKEN = "8886107397:AAHENOebGnrupxvGKqKh5cKC3SmujXJOV3w" # तुझा 1M चा अचूक टोकन
-TARGET_GROUP_ID = "-1004370895879"  # तुझा My Home Group चा आयडी
-SECRET_PASSWORD = "12345"   # 1M चा पासवर्ड
+TELEGRAM_BOT_TOKEN = "8886107397:AAHENOebGnrupxvGKqKh5cKC3SmujXJOV3w" 
+TARGET_GROUP_ID = "-1004370895879"  
+SECRET_PASSWORD = "12345"   
 # ------------------------------------------------------------
 
 # 🚀 Global State for Logic & Dashboard
@@ -353,3 +353,22 @@ HTML_TEMPLATE = """
     </script>
 </body>
 </html>
+"""
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route('/data')
+def get_data():
+    return jsonify(bot_state)
+
+if __name__ == '__main__':
+    t1 = threading.Thread(target=background_bot_loop, daemon=True)
+    t1.start()
+    
+    t2 = threading.Thread(target=telegram_listener, daemon=True)
+    t2.start()
+    
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)

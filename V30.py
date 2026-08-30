@@ -26,7 +26,8 @@ def create_state(name, interval):
         
         # 💰 फंड मॅनेजमेंट (Virtual Wallet, Safe Mode & Auto-Withdrawal)
         "balance": 20000.0,  # सुरुवातीचा फंड
-        "bet_amounts": {1: 100, 2: 200, 3: 500, 4: 1000}, # लेव्हल नुसार रक्कम
+        # 👇 नवीन ६ लेव्हल्स सेट केल्या आहेत (50, 120, 250, 600, 1200, 2400)
+        "bet_amounts": {1: 50, 2: 120, 3: 250, 4: 600, 5: 1200, 6: 2400}, 
         "total_withdrawn": 0.0, # एकूण काढलेली रक्कम
         "withdrawal_count": 0,  # किती वेळा काढले
         
@@ -124,7 +125,7 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         text += f"⏳ *Building History Data...*\n_Waiting for issue {int(issue)-20} to sync..._\n"
     else:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
-        current_bet = state["bet_amounts"].get(bs_level, 0) # लेव्हल ५+ असेल तर रक्कम ०
+        current_bet = state["bet_amounts"].get(bs_level, 0) # लेव्हल ७+ असेल तर रक्कम ० (Virtual Mode)
         
         text += f"📏 *Prediction:* *{bs_pred_text}*\n"
         text += f"🎯 *Level:* L{bs_level}\n"
@@ -221,19 +222,19 @@ def process_strategy(state, records):
             bs_win = (state["bs_pred"] == latest_bs)
             bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
             
-            # 💰 सध्याच्या लेव्हलचा फंड (लेव्हल ५ किंवा पुढे ० रुपये असेल)
+            # 💰 सध्याच्या लेव्हलचा फंड (लेव्हल ७ किंवा पुढे ० रुपये असेल)
             current_bet = state["bet_amounts"].get(state["bs_level"], 0)
             
             if bs_win:
                 state["stats"]["bs_win"] += 1
                 
-                # जर रिअल ट्रेडिंग असेल (L1 ते L4)
+                # जर रिअल ट्रेडिंग असेल (L1 ते L6)
                 if current_bet > 0:
-                    net_profit = current_bet * 0.96 # (१०० वर ९६ रुपये प्रॉफिट)
+                    net_profit = current_bet * 0.96 # (०.९६ पट प्रॉफिट)
                     state["balance"] += net_profit
                     bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN (+₹{net_profit:.0f})"
                 else:
-                    # जर Virtual Mode मध्ये जिंकला (L5+)
+                    # जर Virtual Mode मध्ये जिंकला (L7+)
                     bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN (Virtual Mode)"
                 
                 # जिंकल्यावर कोणतीही लेव्हल असो, पुन्हा लेव्हल १ वर रिसेट
@@ -242,19 +243,20 @@ def process_strategy(state, records):
             else:
                 state["stats"]["bs_fail"] += 1
                 
-                # जर रिअल ट्रेडिंग असेल (L1 ते L4)
+                # जर रिअल ट्रेडिंग असेल (L1 ते L6)
                 if current_bet > 0:
                     state["balance"] -= current_bet
                     bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL (-₹{current_bet})"
                 else:
-                    # जर Virtual Mode मध्ये हरला (L5+)
+                    # जर Virtual Mode मध्ये हरला (L7+)
                     bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL (Virtual Mode)"
                 
-                # हरल्यावर पुढची लेव्हल घेणे (५, ६, ७... Virtual मध्ये चालत राहील)
+                # हरल्यावर पुढची लेव्हल घेणे (७, ८, ९... Virtual मध्ये चालत राहील)
                 old_level = state["bs_level"]
                 state["bs_level"] += 1
             
-            # 🏦 AUTO-WITHDRAWAL LOGIC (₹4000 Profit Target)
+            # 🏦 AUTO-WITHDRAWAL LOGIC (Principal २०,००० + Profit ४,००० = २४,०००)
+            # जेव्हा बॅलन्स २४,००० किंवा त्याहून अधिक होईल, तेव्हाच ४,००० विड्रॉ होतील आणि २०,००० तसेच राहतील.
             while state["balance"] >= 24000.0:
                 state["balance"] -= 4000.0
                 state["total_withdrawn"] += 4000.0
@@ -334,7 +336,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S BOT (Exact 20th Round + Virtual Safe Mode)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S BOT (6-Level Safe Mode)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

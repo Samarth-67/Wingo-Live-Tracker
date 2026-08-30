@@ -18,6 +18,9 @@ TARGET_GROUP_ID = "-1004318545622"  # <--- ३० सेकंदाच्या
 PASS_30S = "11111"   # ३० सेकंदाच्या गेमसाठी
 # ----------------------------------------
 
+# ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session तयार करणे (यामुळे स्पीड वाढतो)
+api_session = requests.Session()
+
 # कलर ओळखण्यासाठी फंक्शन
 def get_color(num_str):
     num = int(num_str)
@@ -55,7 +58,7 @@ def send_telegram_message_direct(chat_id, text):
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
-            requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=3)
+            api_session.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=3)
         except Exception:
             pass
     threading.Thread(target=_send, daemon=True).start()
@@ -65,7 +68,7 @@ def telegram_listener():
     while True:
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={offset}&timeout=2"
-            response = requests.get(url, timeout=5)
+            response = api_session.get(url, timeout=5)
             if response.status_code == 200:
                 for result in response.json().get("result", []):
                     offset = result["update_id"] + 1
@@ -120,7 +123,7 @@ def send_telegram_signal(state, issue, bs_pred, color_pred, num_pred, bs_level, 
 
 def fetch_history_records(url, state):
     headers = {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://draw.ar-lottery01.com/",
     }
@@ -129,7 +132,7 @@ def fetch_history_records(url, state):
     # आधी ३० रेकॉर्ड्स एकत्र आणण्याचा प्रयत्न
     try:
         params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
-        response = requests.get(url, headers=headers, params=params, timeout=3)
+        response = api_session.get(url, headers=headers, params=params, timeout=3)
         if response.status_code == 200:
             data = response.json()
             if "data" in data and isinstance(data["data"], list): all_records.extend(data["data"])
@@ -138,12 +141,12 @@ def fetch_history_records(url, state):
     except Exception:
         pass
         
-    # जर API ने फक्त १० च रेकॉर्ड्स दिले, तर पेज २ आणि ३ पण आणेल (म्हणजे २० वा राऊंड नेहमी सेफ राहील)
+    # जर API ने फक्त १० च रेकॉर्ड्स दिले, तर पेज २ आणि ३ पण आणेल
     if len(all_records) <= 10:
         for p in [2, 3]:
             try:
                 params = {"pageSize": 10, "pageNo": p, "ts": int(time.time() * 1000)}
-                response = requests.get(url, headers=headers, params=params, timeout=2)
+                response = api_session.get(url, headers=headers, params=params, timeout=2)
                 if response.status_code == 200:
                     data = response.json()
                     if "data" in data and isinstance(data["data"], list): all_records.extend(data["data"])
@@ -166,20 +169,20 @@ def process_strategy(state, records):
     latest_bs = "Big" if int(latest_number_str) >= 5 else "Small"
     latest_color = get_color(latest_number_str)
 
-    # सर्व रेकॉर्ड्स मेमरीमध्ये सेव्ह करणे (आता Color आणि Num सोबत)
+    # मेमरीमध्ये रेकॉर्ड्स अत्यंत वेगाने सेव्ह करणे
+    existing_issues = {x["issue"] for x in state["full_history"]}
     for rec in records:
         iss = str(rec.get("issueNumber") or rec.get("issue") or "")
         num_str = str(rec.get("number") or rec.get("drawNumber") or "")
-        if iss.isdigit() and num_str.isdigit():
-            if not any(x["issue"] == iss for x in state["full_history"]):
-                bs_val = "Big" if int(num_str) >= 5 else "Small"
-                color_val = get_color(num_str)
-                state["full_history"].append({
-                    "issue": iss, 
-                    "bs": bs_val, 
-                    "num": num_str, 
-                    "color": color_val
-                })
+        if iss.isdigit() and num_str.isdigit() and iss not in existing_issues:
+            bs_val = "Big" if int(num_str) >= 5 else "Small"
+            state["full_history"].append({
+                "issue": iss, 
+                "bs": bs_val, 
+                "num": num_str, 
+                "color": get_color(num_str)
+            })
+            existing_issues.add(iss)
                 
     state["full_history"].sort(key=lambda x: int(x["issue"]), reverse=True)
     state["full_history"] = state["full_history"][:60] # मेमरीमध्ये ६० राऊंड्स सुरक्षित राहतील
@@ -220,10 +223,10 @@ def process_strategy(state, records):
             bs_win = (state["bs_pred"] == latest_bs)
             bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
             
-            num_win_emoji = "✅" if state["num_pred"] == latest_number_str else "❌"
-            
             # मागील राऊंडचा निकाल तयार करणे
             prev_res_text = f"Result: B/S: *{latest_bs}* | Num: *{latest_number_str}* | Color: *{latest_color}*\n"
+            
+            current_trade_level = state["bs_level"]
             
             if bs_win:
                 state["stats"]["bs_win"] += 1
@@ -237,7 +240,7 @@ def process_strategy(state, records):
                     
             state["history"].append({
                 "trade": state["stats"]["total_trades"], "issue": latest_issue[-4:],
-                "bs_level": f"L{state['bs_level'] - 1 if bs_win else state['bs_level'] - 1}", 
+                "bs_level": f"L{current_trade_level}", 
                 "bs_pred": state["bs_pred"],
                 "bs_res": "[green]WIN[/]" if "WIN" in bs_res_status else "[red]FAIL[/]"
             })
@@ -275,7 +278,7 @@ def worker_30s():
         records = fetch_history_records(url, state_30s)
         if records:
             process_strategy(state_30s, records)
-        time.sleep(1)
+        time.sleep(1) # ३० सेकंदाच्या गेमसाठी १ सेकंदाचा रिफ्रेश रेट अगदी योग्य आहे
 
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
@@ -315,7 +318,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S BOT (Exact 20th Round Tracking + Color/Number)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S SUPERFAST BOT (20th Round Tracking)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 
@@ -325,7 +328,7 @@ if __name__ == "__main__":
     
     t_list.start(); t_30s.start()
 
-    with Live(create_master_ui(), console=console, refresh_per_second=2, screen=False) as live:
+    with Live(create_master_ui(), console=console, refresh_per_second=4, screen=False) as live:
         while True:
             live.update(create_master_ui())
-            time.sleep(1)
+            time.sleep(0.5)

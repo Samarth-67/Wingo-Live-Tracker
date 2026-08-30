@@ -16,6 +16,9 @@ TARGET_GROUP_ID = "-5202202128"
 PASS_30S = "11111"   
 # ----------------------------------------
 
+# ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session तयार करणे (यामुळे स्पीड वाढतो)
+api_session = requests.Session()
+
 def create_state(name, interval):
     return {
         "name": name,
@@ -47,7 +50,8 @@ def send_telegram_message_direct(chat_id, text):
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
-            requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=3)
+            # येथे api_session वापरला आहे
+            api_session.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=3)
         except Exception:
             pass
     threading.Thread(target=_send, daemon=True).start()
@@ -57,7 +61,7 @@ def telegram_listener():
     while True:
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={offset}&timeout=2"
-            response = requests.get(url, timeout=5)
+            response = api_session.get(url, timeout=5)
             if response.status_code == 200:
                 for result in response.json().get("result", []):
                     offset = result["update_id"] + 1
@@ -148,7 +152,7 @@ def fetch_history_records(url, state):
     
     try:
         params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
-        response = requests.get(url, headers=headers, params=params, timeout=3)
+        response = api_session.get(url, headers=headers, params=params, timeout=3)
         if response.status_code == 200:
             data = response.json()
             if "data" in data and isinstance(data["data"], list): all_records.extend(data["data"])
@@ -161,7 +165,7 @@ def fetch_history_records(url, state):
         for p in [2, 3]:
             try:
                 params = {"pageSize": 10, "pageNo": p, "ts": int(time.time() * 1000)}
-                response = requests.get(url, headers=headers, params=params, timeout=2)
+                response = api_session.get(url, headers=headers, params=params, timeout=2)
                 if response.status_code == 200:
                     data = response.json()
                     if "data" in data and isinstance(data["data"], list): all_records.extend(data["data"])
@@ -183,13 +187,15 @@ def process_strategy(state, records):
     if not (latest_number_str.isdigit() and latest_issue.isdigit()): return False
     latest_bs = "Big" if int(latest_number_str) >= 5 else "Small"
 
+    # 🚀 सुपरफास्ट मेमरी सेव्हिंग (O(1) Lookup)
+    existing_issues = {x["issue"] for x in state["full_history"]}
     for rec in records:
         iss = str(rec.get("issueNumber") or rec.get("issue") or "")
         num_str = str(rec.get("number") or rec.get("drawNumber") or "")
-        if iss.isdigit() and num_str.isdigit():
-            if not any(x["issue"] == iss for x in state["full_history"]):
-                bs_val = "Big" if int(num_str) >= 5 else "Small"
-                state["full_history"].append({"issue": iss, "bs": bs_val})
+        if iss.isdigit() and num_str.isdigit() and iss not in existing_issues:
+            bs_val = "Big" if int(num_str) >= 5 else "Small"
+            state["full_history"].append({"issue": iss, "bs": bs_val})
+            existing_issues.add(iss)
                 
     state["full_history"].sort(key=lambda x: int(x["issue"]), reverse=True)
     state["full_history"] = state["full_history"][:60]
@@ -296,7 +302,7 @@ def worker_30s():
         records = fetch_history_records(url, state_30s)
         if records:
             process_strategy(state_30s, records)
-        time.sleep(1)
+        time.sleep(1) # ३० सेकंदाचा फास्ट रिफ्रेश
 
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
@@ -336,7 +342,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S BOT (6-Level Safe Mode)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S SUPERFAST BOT (6-Level Safe Mode)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 
@@ -346,7 +352,8 @@ if __name__ == "__main__":
     
     t_list.start(); t_30s.start()
 
-    with Live(create_master_ui(), console=console, refresh_per_second=2, screen=False) as live:
+    # 🚀 Live UI चा वेग वाढवला आहे
+    with Live(create_master_ui(), console=console, refresh_per_second=4, screen=False) as live:
         while True:
             live.update(create_master_ui())
-            time.sleep(1)
+            time.sleep(0.5)

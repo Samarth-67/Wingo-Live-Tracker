@@ -21,7 +21,8 @@ bot_state = {
     
     # 💰 फंड मॅनेजमेंट (Virtual Wallet, Safe Mode & Auto-Withdrawal)
     "balance": 20000.0,  
-    "bet_amounts": {1: 100, 2: 200, 3: 500, 4: 1000}, # लेव्हल ५ ला ० रुपये
+    # 👇 ६ लेव्हल्सचे नवीन सेटिंग (७ व्या लेव्हलपासून रक्कम शून्य होईल)
+    "bet_amounts": {1: 50, 2: 120, 3: 250, 4: 600, 5: 1200, 6: 2400}, 
     "total_withdrawn": 0.0, # एकूण काढलेली रक्कम
     "withdrawal_count": 0,  # किती वेळा काढले
     
@@ -59,6 +60,7 @@ def telegram_listener():
                     chat_id = message.get("chat", {}).get("id")
                     text = message.get("text", "").strip()
 
+                    # 🟢 START COMMAND
                     if text.startswith("/signal"):
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == SECRET_PASSWORD:
@@ -67,11 +69,26 @@ def telegram_listener():
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                                 
+                    # 🔴 STOP COMMAND
                     elif text.startswith("/stop"):
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == SECRET_PASSWORD:
                             bot_state["is_running"] = False
                             send_telegram_message_direct(chat_id, "🛑 *[1M Strategy] Stopped Successfully!*")
+                        else:
+                            send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
+                            
+                    # 🔄 RESET WALLET COMMAND (नवीन ऍड केली आहे)
+                    elif text.startswith("/reset"):
+                        parts = text.split()
+                        if len(parts) == 2 and parts[1] == SECRET_PASSWORD:
+                            bot_state["balance"] = 20000.0
+                            bot_state["total_withdrawn"] = 0.0
+                            bot_state["withdrawal_count"] = 0
+                            bot_state["bs_level"] = 1
+                            bot_state["bs_pred"] = "WAIT"
+                            bot_state["last_result_text"] = "Wallet Reset Successfully!"
+                            send_telegram_message_direct(chat_id, "🔄 *Wallet Reset Successfully!*\n💰 *Current Balance:* ₹20,000\n🏦 *Withdrawal History Cleared.*")
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
         except Exception:
@@ -223,7 +240,7 @@ def process_strategy(state, records):
                 old_level = state["bs_level"]
                 state["bs_level"] += 1
             
-            # 🏦 AUTO-WITHDRAWAL LOGIC (₹4000 Profit Target)
+            # 🏦 AUTO-WITHDRAWAL LOGIC (Principal २०,००० + Profit ४,००० = २४,०००)
             while state["balance"] >= 24000.0:
                 state["balance"] -= 4000.0
                 state["total_withdrawn"] += 4000.0
@@ -290,7 +307,7 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="card">
-        <h1>🚀 VSR 1M Manager</h1>
+        <h1>🚀 VSR 1M Manager (6-Level Safe)</h1>
         <div class="subtitle">
             Bot Status: <span id="timer_status" class="status-badge">INACTIVE</span>
         </div>
@@ -305,7 +322,6 @@ HTML_TEMPLATE = """
         <div class="metric"><span>📏 Prediction:</span> <span class="highlight" id="bs_info">-</span></div>
         <div class="metric"><span>💵 Bet Amount:</span> <span class="highlight" style="color:#facc15;" id="bet_info">₹ 0</span></div>
         
-        <!-- नविन विड्रॉवल ब्लॉक -->
         <div class="metric"><span>🏦 Total Withdrawn:</span> <span class="withdraw-highlight" id="withdrawn_info">₹ 0 (0x)</span></div>
         
         <div class="result-box" id="last_result">
@@ -338,23 +354,25 @@ HTML_TEMPLATE = """
                     // अपडेट विड्रॉवल
                     document.getElementById('withdrawn_info').innerText = "₹ " + data.total_withdrawn + " (" + data.withdrawal_count + " times)";
                     
+                    // डायनॅमिक बेट अमाऊंट कॅल्क्युलेशन (६ लेव्हल्सनुसार)
                     let current_bet = 0;
-                    if(data.bs_level <= 4) {
-                        if(data.bs_level === 1) current_bet = 100;
-                        if(data.bs_level === 2) current_bet = 200;
-                        if(data.bs_level === 3) current_bet = 500;
-                        if(data.bs_level === 4) current_bet = 1000;
+                    if(data.bs_level <= 6) {
+                        if(data.bs_level === 1) current_bet = 50;
+                        if(data.bs_level === 2) current_bet = 120;
+                        if(data.bs_level === 3) current_bet = 250;
+                        if(data.bs_level === 4) current_bet = 600;
+                        if(data.bs_level === 5) current_bet = 1200;
+                        if(data.bs_level === 6) current_bet = 2400;
                     }
                     
                     if(data.bs_pred === "WAIT") current_bet = 0;
                     
                     if(current_bet === 0 && data.bs_pred !== "WAIT") {
-                        document.getElementById('bet_info').innerText = "₹ 0 (Safe Mode)";
+                        document.getElementById('bet_info').innerText = "₹ 0 (Virtual Mode)";
                     } else {
                         document.getElementById('bet_info').innerText = "₹ " + current_bet;
                     }
                     
-                    // Replace newlines with <br> for HTML rendering
                     let formatted_result = data.last_result_text.replace(/\\n/g, "<br>");
                     document.getElementById('last_result').innerHTML = "<b>📊 Last Trade Status:</b><br>" + formatted_result;
                     

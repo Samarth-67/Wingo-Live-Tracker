@@ -18,6 +18,9 @@ TARGET_GROUP_ID = "-1004331023441"
 PASS_1M = "22222"   # १ मिनिटाच्या गेमसाठी
 # ----------------------------------------
 
+# ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session
+api_session = requests.Session()
+
 # कलर ओळखण्यासाठी फंक्शन
 def get_color(num_str):
     num = int(num_str)
@@ -33,12 +36,13 @@ def create_state(name, interval):
         "interval": interval,
         "last_processed_issue": None,
         
-        "bs_pred": None, 
-        "color_pred": None,
-        "num_pred": None,
+        "bs_pred": "WAIT", 
+        "color_pred": "WAIT",
+        "num_pred": "WAIT",
         
         "bs_level": 1, 
         
+        "full_history": [], # 🚀 बॉटची स्वतःची अचूक मेमरी (२० वा राऊंड शोधण्यासाठी)
         "history": [],
         "stats": {"bs_win": 0, "bs_fail": 0, "total_trades": 0},
         "is_running": False,       
@@ -46,23 +50,25 @@ def create_state(name, interval):
         "live_records": []
     }
 
-# टीप: कोडमध्ये state_30s नाव वापरले आहे, मी तेच ठेवले आहे जेणेकरून तुम्हाला एरर येणार नाही.
+# टीप: जुन्या कोडप्रमाणे state_30s नावच ठेवले आहे.
 state_30s = create_state("WinGo 1M", "1M")
 
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    try:
-        requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
-    except Exception:
-        pass
+    def _send():
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        try:
+            api_session.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=3)
+        except Exception:
+            pass
+    threading.Thread(target=_send, daemon=True).start()
 
 def telegram_listener():
     offset = 0
     while True:
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={offset}&timeout=2"
-            response = requests.get(url, timeout=5)
+            response = api_session.get(url, timeout=5)
             if response.status_code == 200:
                 for result in response.json().get("result", []):
                     offset = result["update_id"] + 1
@@ -110,35 +116,52 @@ def send_telegram_signal(state, issue, bs_pred, color_pred, num_pred, bs_level, 
         
     text += f"🎟️ *New Issue:* {issue}\n\n"
     
-    bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
-    text += f"📏 *B/S Pred:* *{bs_pred_text}*\n"
-    text += f"🎨 *Color Pred:* *{color_pred}*\n"
-    text += f"🔢 *Number Pred:* *{num_pred}*\n"
-    text += f"🎯 *Level:* L{bs_level}\n\n"
+    if bs_pred == "WAIT":
+        text += f"⏳ *Building History Data...*\n_Waiting for issue {int(issue)-20} to sync..._\n"
+    else:
+        bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
+        text += f"📏 *B/S Pred:* *{bs_pred_text}*\n"
+        text += f"🎨 *Color Pred:* *{color_pred}*\n"
+        text += f"🔢 *Number Pred:* *{num_pred}*\n"
+        text += f"🎯 *Level:* L{bs_level}\n\n"
         
     send_telegram_message_direct(target_chat_id, text)
 
-def fetch_data(url):
+# 🚀 नवीन मल्टी-पेज फेचर (जेणेकरून २० रेकॉर्ड्स कायम मिळतील)
+def fetch_history_records(url):
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0",
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://draw.ar-lottery01.com/",
     }
-    params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
+    all_records = []
+    
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=10)
+        params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
+        response = api_session.get(url, headers=headers, params=params, timeout=3)
         if response.status_code == 200:
-            return response.json()
-    except Exception as e:
+            data = response.json()
+            if "data" in data and isinstance(data["data"], list): all_records.extend(data["data"])
+            elif "list" in data and isinstance(data["list"], list): all_records.extend(data["list"])
+            elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: all_records.extend(data["data"]["list"])
+    except Exception:
         pass
-    return None
-
-def extract_records(data):
-    if not data: return []
-    if "data" in data and isinstance(data["data"], list): return data["data"]
-    elif "list" in data and isinstance(data["list"], list): return data["list"]
-    elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: return data["data"]["list"]
-    return []
+        
+    # जर फक्त १० रेकॉर्ड्स आले, तर पेज २ आणि ३ आणा
+    if len(all_records) <= 10:
+        for p in [2, 3]:
+            try:
+                params = {"pageSize": 10, "pageNo": p, "ts": int(time.time() * 1000)}
+                response = api_session.get(url, headers=headers, params=params, timeout=2)
+                if response.status_code == 200:
+                    data = response.json()
+                    if "data" in data and isinstance(data["data"], list): all_records.extend(data["data"])
+                    elif "list" in data and isinstance(data["list"], list): all_records.extend(data["list"])
+                    elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: all_records.extend(data["data"]["list"])
+            except Exception:
+                pass
+            
+    return all_records
 
 def process_strategy(state, records):
     if not records: 
@@ -149,83 +172,113 @@ def process_strategy(state, records):
     latest_issue = str(latest_item.get("issueNumber") or latest_item.get("issue") or "-")
     latest_number_str = str(latest_item.get("number") or latest_item.get("drawNumber") or "-")
     
-    if latest_number_str.isdigit():
-        number = int(latest_number_str)
-        latest_bs = "Big" if number >= 5 else "Small"
-        latest_color = get_color(latest_number_str)
-    else:
-        return False
+    if not (latest_number_str.isdigit() and latest_issue.isdigit()): return False
+    latest_bs = "Big" if int(latest_number_str) >= 5 else "Small"
+    latest_color = get_color(latest_number_str)
+
+    # 🚀 मेमरीमध्ये रेकॉर्ड्स अत्यंत वेगाने सेव्ह करणे
+    existing_issues = {x["issue"] for x in state["full_history"]}
+    for rec in records:
+        iss = str(rec.get("issueNumber") or rec.get("issue") or "")
+        num_str = str(rec.get("number") or rec.get("drawNumber") or "")
+        if iss.isdigit() and num_str.isdigit() and iss not in existing_issues:
+            bs_val = "Big" if int(num_str) >= 5 else "Small"
+            state["full_history"].append({
+                "issue": iss, 
+                "bs": bs_val, 
+                "num": num_str, 
+                "color": get_color(num_str)
+            })
+            existing_issues.add(iss)
+                
+    state["full_history"].sort(key=lambda x: int(x["issue"]), reverse=True)
+    state["full_history"] = state["full_history"][:60] # मेमरीमध्ये ६० राऊंड्स सुरक्षित राहतील
 
     # जेव्हा प्रोग्राम पहिल्यांदा सुरू होतो
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
+        next_issue_int = int(latest_issue) + 1
         
-        target_idx = 19 if len(records) >= 20 else len(records) - 1
-        round_20_item = records[target_idx]
-        round_20_num = str(round_20_item.get("number") or round_20_item.get("drawNumber") or "0")
+        # 🎯 अचूक २० व्या राऊंडची गणितीय पद्धत
+        target_issue_str = str(next_issue_int - 20) 
+        target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         
-        state["bs_pred"] = "Big" if round_20_num.isdigit() and int(round_20_num) >= 5 else "Small"
-        state["color_pred"] = get_color(round_20_num) if round_20_num.isdigit() else "Unknown"
-        state["num_pred"] = round_20_num
+        if target_record:
+            state["bs_pred"] = target_record["bs"]
+            state["color_pred"] = target_record["color"]
+            state["num_pred"] = target_record["num"]
+        elif len(state["full_history"]) >= 20:
+            state["bs_pred"] = state["full_history"][19]["bs"]
+            state["color_pred"] = state["full_history"][19]["color"]
+            state["num_pred"] = state["full_history"][19]["num"]
+        else:
+            state["bs_pred"] = "WAIT"
+            state["color_pred"] = "WAIT"
+            state["num_pred"] = "WAIT"
         
-        next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
         if state["is_running"]:
-            send_telegram_signal(state, next_issue, state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"])
+            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"])
         return True
 
     # जेव्हा नवीन राऊंड येतो
     if state["last_processed_issue"] != latest_issue:
-        if state["last_processed_issue"].isdigit() and latest_issue.isdigit():
-            if int(latest_issue) <= int(state["last_processed_issue"]):
-                return False  
+        if int(latest_issue) <= int(state["last_processed_issue"]): return False  
 
-        state["stats"]["total_trades"] += 1
+        prev_res_text = ""
+        bs_res_status = "-"
         
-        bs_win = (state["bs_pred"] == latest_bs)
-        bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
+        if state["bs_pred"] != "WAIT":
+            state["stats"]["total_trades"] += 1
+            
+            bs_win = (state["bs_pred"] == latest_bs)
+            bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
+            
+            # मागील राऊंडचा निकाल
+            prev_res_text = f"Result: B/S: *{latest_bs}* | Num: *{latest_number_str}* | Color: *{latest_color}*"
+            
+            current_trade_level = state["bs_level"]
+            
+            if bs_win:
+                state["stats"]["bs_win"] += 1
+                state["bs_level"] = 1 
+                bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
+                prev_res_text += f"\n\n🔥🎉 *CONGRATS! B/S WIN!* 🎉🔥"
+            else:
+                state["stats"]["bs_fail"] += 1
+                state["bs_level"] += 1
+                bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
+                    
+            bs_disp_pred = state["bs_pred"] 
+            bs_disp_lvl = f"L{current_trade_level}" 
+            
+            state["history"].append({
+                "trade": state["stats"]["total_trades"], "issue": latest_issue[-4:],
+                "bs_level": bs_disp_lvl, "bs_pred": bs_disp_pred,
+                "bs_res": "[green]WIN[/]" if "WIN" in bs_res_status else "[red]FAIL[/]"
+            })
+            if len(state["history"]) > 3: state["history"].pop(0)
+
+        # 🚀 STRATEGY LOGIC (अचूक २० व्या राऊंडचा निकाल काढणे)
+        next_issue_int = int(latest_issue) + 1
+        target_issue_str = str(next_issue_int - 20)
         
-        # मागील राऊंडचा निकाल तयार करणे
-        prev_res_text = f"Result: B/S: *{latest_bs}* | Num: *{latest_number_str}* | Color: *{latest_color}*"
+        target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         
-        # --- लेव्हल ट्रॅकिंगमधील बग दुरुस्त केला ---
-        current_trade_level = state["bs_level"] # निकाल लागलेल्या राऊंडची खरी लेव्हल सेव्ह केली
-        
-        if bs_win:
-            state["stats"]["bs_win"] += 1
-            state["bs_level"] = 1 
-            bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
-            prev_res_text += f"\n\n🔥🎉 *CONGRATS! B/S WIN!* 🎉🔥"
+        if target_record:
+            state["bs_pred"] = target_record["bs"]
+            state["color_pred"] = target_record["color"]
+            state["num_pred"] = target_record["num"]
+        elif len(state["full_history"]) >= 20:
+            state["bs_pred"] = state["full_history"][19]["bs"]
+            state["color_pred"] = state["full_history"][19]["color"]
+            state["num_pred"] = state["full_history"][19]["num"]
         else:
-            state["stats"]["bs_fail"] += 1
-            state["bs_level"] += 1
-            bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
-                
-        bs_disp_pred = state["bs_pred"] 
-        bs_disp_lvl = f"L{current_trade_level}" # आता येथे अचूक लेव्हल दिसेल
-        
-        state["history"].append({
-            "trade": state["stats"]["total_trades"], "issue": latest_issue[-4:],
-            "bs_level": bs_disp_lvl, "bs_pred": bs_disp_pred,
-            "bs_res": "[green]WIN[/]" if "WIN" in bs_res_status else "[red]FAIL[/]"
-        })
-        if len(state["history"]) > 3: state["history"].pop(0)
+            state["bs_pred"] = "WAIT"
+            state["color_pred"] = "WAIT"
+            state["num_pred"] = "WAIT"
 
-        # =======================================================
-        # 🚀 STRATEGY LOGIC (पुढच्या राऊंडसाठी फक्त विसाव्या राऊंडचा निकाल)
-        # =======================================================
-        target_idx = 19 if len(records) >= 20 else len(records) - 1
-        round_20_item = records[target_idx] 
-        round_20_num = str(round_20_item.get("number") or round_20_item.get("drawNumber") or "0")
-        
-        if round_20_num.isdigit():
-            state["bs_pred"] = "Big" if int(round_20_num) >= 5 else "Small"
-            state["color_pred"] = get_color(round_20_num)
-            state["num_pred"] = round_20_num
-
-        next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
-        
         if state["is_running"]:
-            send_telegram_signal(state, next_issue, state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"], prev_res_text)
+            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"], prev_res_text)
 
         state["last_processed_issue"] = latest_issue
         return True
@@ -234,19 +287,23 @@ def process_strategy(state, records):
 def worker_30s():
     url = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
     while True:
-        data = fetch_data(url)
-        if data:
-            records = extract_records(data)
+        records = fetch_history_records(url)
+        if records:
             process_strategy(state_30s, records)
         time.sleep(2) 
 
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
-    bs_color = "dark_orange" if state["bs_pred"] == "Big" else "bright_blue"
     
-    ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})"
-    color_text = f"[bold]{state['color_pred']}[/]" if state['color_pred'] else "-"
-    num_text = f"[bold magenta]{state['num_pred']}[/]" if state['num_pred'] else "-"
+    if state["bs_pred"] == "WAIT":
+        ui_text = "[yellow]WAIT (Syncing...)[/]"
+        color_text = "WAIT"
+        num_text = "WAIT"
+    else:
+        bs_color = "dark_orange" if state["bs_pred"] == "Big" else "bright_blue"
+        ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})"
+        color_text = f"[bold]{state['color_pred']}[/]"
+        num_text = f"[bold magenta]{state['num_pred']}[/]"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
@@ -273,7 +330,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 1 MINUTE BOT (Pure 20th Round Tracking)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 1 MINUTE BOT (Accurate 20th Round Tracking)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 
@@ -283,7 +340,7 @@ if __name__ == "__main__":
     
     t_list.start(); t_30s.start()
 
-    with Live(create_master_ui(), console=console, refresh_per_second=2, screen=False) as live:
+    with Live(create_master_ui(), console=console, refresh_per_second=4, screen=False) as live:
         while True:
             live.update(create_master_ui())
-            time.sleep(1)
+            time.sleep(0.5)

@@ -12,7 +12,7 @@ console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
 TELEGRAM_TOKEN = "7706219157:AAF-z7DfUlBtteflQNn5OsgPhbEc9XMthd4" 
-TARGET_GROUP_ID = "-1004331023441"  # <--- तुमचा नवीन अपडेट केलेला ग्रुप आयडी
+TARGET_GROUP_ID = "-1004331023441"  
 
 # 🔐 सिक्रेट पासवर्ड्स
 PASS_1M = "22222"   # १ मिनिटाच्या गेमसाठी
@@ -187,7 +187,9 @@ def process_strategy(state, records):
         # मागील राऊंडचा निकाल तयार करणे
         prev_res_text = f"Result: B/S: *{latest_bs}* | Num: *{latest_number_str}* | Color: *{latest_color}*"
         
-        # --- जिंकले की लेव्हल १, हरले की पुढची लेव्हल ---
+        # --- लेव्हल ट्रॅकिंगमधील बग दुरुस्त केला ---
+        current_trade_level = state["bs_level"] # निकाल लागलेल्या राऊंडची खरी लेव्हल सेव्ह केली
+        
         if bs_win:
             state["stats"]["bs_win"] += 1
             state["bs_level"] = 1 
@@ -199,7 +201,7 @@ def process_strategy(state, records):
             bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
                 
         bs_disp_pred = state["bs_pred"] 
-        bs_disp_lvl = f"L{state['bs_level'] - 1 if bs_win else state['bs_level'] - 1}"
+        bs_disp_lvl = f"L{current_trade_level}" # आता येथे अचूक लेव्हल दिसेल
         
         state["history"].append({
             "trade": state["stats"]["total_trades"], "issue": latest_issue[-4:],
@@ -271,7 +273,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 1 MINUTE BOT (Pure 20th Round Tracking + Color/Number)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 1 MINUTE BOT (Pure 20th Round Tracking)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

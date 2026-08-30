@@ -18,12 +18,25 @@ TARGET_GROUP_ID = "-1004331023441"  # <--- तुमचा नवीन अप�
 PASS_1M = "22222"   # १ मिनिटाच्या गेमसाठी
 # ----------------------------------------
 
+# कलर ओळखण्यासाठी फंक्शन
+def get_color(num_str):
+    num = int(num_str)
+    if num in [1, 3, 7, 9]: return "Green 🟢"
+    elif num in [2, 4, 6, 8]: return "Red 🔴"
+    elif num == 0: return "Red & Violet 🔴🟣"
+    elif num == 5: return "Green & Violet 🟢🟣"
+    return "Unknown"
+
 def create_state(name, interval):
     return {
         "name": name,
         "interval": interval,
         "last_processed_issue": None,
+        
         "bs_pred": None, 
+        "color_pred": None,
+        "num_pred": None,
+        
         "bs_level": 1, 
         
         "history": [],
@@ -83,23 +96,24 @@ def telegram_listener():
             pass
         time.sleep(3)
 
-def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
+def send_telegram_signal(state, issue, bs_pred, color_pred, num_pred, bs_level, prev_res_text=None):
     target_chat_id = TARGET_GROUP_ID
     if not target_chat_id: return
 
     game_name = state["name"]
-    text = f"🚀 *VSR {game_name} Trend Follower* 🚀\n\n"
+    text = f"🚀 *VSR {game_name} 20th Round Follower* 🚀\n\n"
     
-    if state["stats"]["total_trades"] > 0 and prev_bs_res:
+    if state["stats"]["total_trades"] > 0 and prev_res_text:
         text += f"🔄 *Last Trade Result:*\n"
-        text += f"📏 B/S: *{prev_bs_res}*\n"
-        if "WIN" in prev_bs_res: text += f"\n🔥🎉 *CONGRATS! WIN!* 🎉🔥\n"
+        text += f"{prev_res_text}\n"
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
         
     text += f"🎟️ *New Issue:* {issue}\n\n"
     
     bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
-    text += f"📏 *Prediction:* *{bs_pred_text}*\n"
+    text += f"📏 *B/S Pred:* *{bs_pred_text}*\n"
+    text += f"🎨 *Color Pred:* *{color_pred}*\n"
+    text += f"🔢 *Number Pred:* *{num_pred}*\n"
     text += f"🎯 *Level:* L{bs_level}\n\n"
         
     send_telegram_message_direct(target_chat_id, text)
@@ -113,7 +127,6 @@ def fetch_data(url):
     params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
     try:
         response = requests.get(url, headers=headers, params=params, timeout=10)
-        # print(f"[DEBUG] API Status Code: {response.status_code}") # Debugging (optional)
         if response.status_code == 200:
             return response.json()
     except Exception as e:
@@ -139,22 +152,28 @@ def process_strategy(state, records):
     if latest_number_str.isdigit():
         number = int(latest_number_str)
         latest_bs = "Big" if number >= 5 else "Small"
+        latest_color = get_color(latest_number_str)
     else:
         return False
 
+    # जेव्हा प्रोग्राम पहिल्यांदा सुरू होतो
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
         
         target_idx = 19 if len(records) >= 20 else len(records) - 1
         round_20_item = records[target_idx]
         round_20_num = str(round_20_item.get("number") or round_20_item.get("drawNumber") or "0")
+        
         state["bs_pred"] = "Big" if round_20_num.isdigit() and int(round_20_num) >= 5 else "Small"
+        state["color_pred"] = get_color(round_20_num) if round_20_num.isdigit() else "Unknown"
+        state["num_pred"] = round_20_num
         
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
         if state["is_running"]:
-            send_telegram_signal(state, next_issue, state["bs_pred"], state["bs_level"])
+            send_telegram_signal(state, next_issue, state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"])
         return True
 
+    # जेव्हा नवीन राऊंड येतो
     if state["last_processed_issue"] != latest_issue:
         if state["last_processed_issue"].isdigit() and latest_issue.isdigit():
             if int(latest_issue) <= int(state["last_processed_issue"]):
@@ -165,18 +184,22 @@ def process_strategy(state, records):
         bs_win = (state["bs_pred"] == latest_bs)
         bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
         
+        # मागील राऊंडचा निकाल तयार करणे
+        prev_res_text = f"Result: B/S: *{latest_bs}* | Num: *{latest_number_str}* | Color: *{latest_color}*"
+        
         # --- जिंकले की लेव्हल १, हरले की पुढची लेव्हल ---
         if bs_win:
             state["stats"]["bs_win"] += 1
             state["bs_level"] = 1 
             bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
+            prev_res_text += f"\n\n🔥🎉 *CONGRATS! B/S WIN!* 🎉🔥"
         else:
             state["stats"]["bs_fail"] += 1
             state["bs_level"] += 1
             bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
                 
         bs_disp_pred = state["bs_pred"] 
-        bs_disp_lvl = f"L{state['bs_level']}"
+        bs_disp_lvl = f"L{state['bs_level'] - 1 if bs_win else state['bs_level'] - 1}"
         
         state["history"].append({
             "trade": state["stats"]["total_trades"], "issue": latest_issue[-4:],
@@ -186,18 +209,21 @@ def process_strategy(state, records):
         if len(state["history"]) > 3: state["history"].pop(0)
 
         # =======================================================
-        # 🚀 STRATEGY LOGIC (फक्त विसाव्या राऊंडचा निकाल)
+        # 🚀 STRATEGY LOGIC (पुढच्या राऊंडसाठी फक्त विसाव्या राऊंडचा निकाल)
         # =======================================================
         target_idx = 19 if len(records) >= 20 else len(records) - 1
         round_20_item = records[target_idx] 
         round_20_num = str(round_20_item.get("number") or round_20_item.get("drawNumber") or "0")
+        
         if round_20_num.isdigit():
             state["bs_pred"] = "Big" if int(round_20_num) >= 5 else "Small"
+            state["color_pred"] = get_color(round_20_num)
+            state["num_pred"] = round_20_num
 
         next_issue = str(int(latest_issue) + 1) if latest_issue.isdigit() else "Next"
         
         if state["is_running"]:
-            send_telegram_signal(state, next_issue, state["bs_pred"], state["bs_level"], bs_res_status)
+            send_telegram_signal(state, next_issue, state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"], prev_res_text)
 
         state["last_processed_issue"] = latest_issue
         return True
@@ -217,12 +243,16 @@ def render_game_panel(state):
     bs_color = "dark_orange" if state["bs_pred"] == "Big" else "bright_blue"
     
     ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})"
+    color_text = f"[bold]{state['color_pred']}[/]" if state['color_pred'] else "-"
+    num_text = f"[bold magenta]{state['num_pred']}[/]" if state['num_pred'] else "-"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
-    panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n📏 [bold]Pred:[/] {ui_text}\n"
+    panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
+    panel_text += f"📏 [bold]B/S Pred:[/] {ui_text}\n"
+    panel_text += f"🎨 [bold]Color:[/] {color_text}  |  🔢 [bold]Num:[/] {num_text}\n"
     panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
-    panel_text += f"📊 [bold]W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/]\n"
+    panel_text += f"📊 [bold]B/S Stats - W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/]\n"
     
     hist_table = Table(show_header=False, width=40)
     hist_table.add_column("Issue", justify="center")
@@ -236,12 +266,12 @@ def render_game_panel(state):
         for h in state["history"]: 
             hist_table.add_row(str(h["issue"]), str(h["bs_level"]), str(h["bs_pred"]), str(h["bs_res"]))
     
-    return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']}[/]", border_style="cyan", width=45)
+    return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']}[/]", border_style="cyan", width=50)
 
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 1 MINUTE BOT (Pure 20th Round Strategy - Continuous Levels)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 1 MINUTE BOT (Pure 20th Round Tracking + Color/Number)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

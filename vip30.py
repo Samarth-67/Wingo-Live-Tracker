@@ -28,7 +28,7 @@ def get_number_prediction(target_num_str):
     
     num = int(target_num_str)
     
-    # जर Violet (0 किंवा 5) असेल तर थांबायचं (WAIT)
+    # जर Violet (0 किंवा 5) असेल तर थांबायचं (WAIT) - लेव्हल स्किप
     if num in [0, 5]:
         return "WAIT"
         
@@ -209,13 +209,13 @@ def process_strategy(state, records):
         else:
             state["bs_pred"] = "WAIT"
             
-        # 🚀 Number Prediction Logic (Skip 1 Round -> Next Issue - 2)
-        target_num_issue_str = str(next_issue_int - 2)
+        # 🚀 Number Prediction Logic (Next Issue - 3)
+        target_num_issue_str = str(next_issue_int - 3)
         target_num_record = next((x for x in state["full_history"] if x["issue"] == target_num_issue_str), None)
         
         if target_num_record:
             state["num_pred"] = get_number_prediction(target_num_record["num"])
-            # जर 0 किंवा 5 असेल तर WAIT येईल, तेव्हा B/S पण थांबवणार.
+            # जर 0 किंवा 5 असेल तर WAIT येईल, तेव्हा B/S पण थांबवणार. (Level Skip)
             if state["num_pred"] == "WAIT":
                 state["bs_pred"] = "WAIT" 
         else:
@@ -231,6 +231,7 @@ def process_strategy(state, records):
 
         prev_res_text = ""
         
+        # जेव्हा "WAIT" असेल तेव्हा हा ब्लॉक रन होणार नाही (म्हणजे Level Skip होईल)
         if state["bs_pred"] != "WAIT" and state["num_pred"] != "WAIT":
             state["stats"]["total_trades"] += 1
             
@@ -298,13 +299,13 @@ def process_strategy(state, records):
         else:
             state["bs_pred"] = "WAIT"
 
-        # 🚀 Number Prediction Logic (Skip 1 Round -> Next Issue - 2)
-        target_num_issue_str = str(next_issue_int - 2)
+        # 🚀 Number Prediction Logic (Next Issue - 3)
+        target_num_issue_str = str(next_issue_int - 3)
         target_num_record = next((x for x in state["full_history"] if x["issue"] == target_num_issue_str), None)
         
         if target_num_record:
             state["num_pred"] = get_number_prediction(target_num_record["num"])
-            # जर 0 किंवा 5 असेल तर WAIT येईल, तेव्हा B/S पण थांबवणार.
+            # जर 0 किंवा 5 असेल तर WAIT येईल, तेव्हा B/S पण थांबवणार. (Level Skip)
             if state["num_pred"] == "WAIT":
                 state["bs_pred"] = "WAIT" 
         else:
@@ -371,7 +372,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S SUPERFAST BOT (B/S: 20th | Num: Exact Pairs Skip 1)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S SUPERFAST BOT (B/S: 20th | Num: Exact Pairs Skip - 3)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

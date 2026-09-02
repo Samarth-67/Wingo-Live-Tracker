@@ -18,7 +18,7 @@ TARGET_GROUP_ID = "-1004331023441"
 PASS_1M = "22222"   # १ मिनिटाच्या गेमसाठी
 # ----------------------------------------
 
-# ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session
+# ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session तयार करणे (यामुळे स्पीड वाढतो)
 api_session = requests.Session()
 
 # 🚀 नवीन Number Prediction Logic (आलटून-पालटून अचूक जोड्या आणि Violet साठी WAIT)
@@ -28,7 +28,7 @@ def get_number_prediction(target_num_str):
     
     num = int(target_num_str)
     
-    # जर Violet (0 किंवा 5) असेल तर थांबायचं (WAIT)
+    # जर Violet (0 किंवा 5) असेल तर थांबायचं (WAIT) - लेव्हल स्किप
     if num in [0, 5]:
         return "WAIT"
         
@@ -72,6 +72,7 @@ state_1m = create_state("WinGo 1M", "1M")
 
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
+    # 🚀 Async Background Sending (मेसेज अजिबात अडकणार नाही)
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
@@ -219,13 +220,13 @@ def process_strategy(state, records):
         else:
             state["bs_pred"] = "WAIT"
             
-        # 🚀 Number Prediction Logic (Skip 1 Round -> Next Issue - 2)
-        target_num_issue_str = str(next_issue_int - 2)
+        # 🚀 Number Prediction Logic (Next Issue - 3)
+        target_num_issue_str = str(next_issue_int - 3)
         target_num_record = next((x for x in state["full_history"] if x["issue"] == target_num_issue_str), None)
         
         if target_num_record:
             state["num_pred"] = get_number_prediction(target_num_record["num"])
-            # जर 0 किंवा 5 असेल तर WAIT येईल. अशावेळी आपण B/S पण थांबवणार.
+            # जर 0 किंवा 5 असेल तर WAIT येईल. अशावेळी आपण B/S पण थांबवणार. (Level Skip)
             if state["num_pred"] == "WAIT":
                 state["bs_pred"] = "WAIT" 
         else:
@@ -242,6 +243,7 @@ def process_strategy(state, records):
 
         prev_res_text = ""
         
+        # जेव्हा "WAIT" असेल तेव्हा हा ब्लॉक रन होणार नाही (म्हणजे Level Skip होईल)
         if state["bs_pred"] != "WAIT" and state["num_pred"] != "WAIT":
             state["stats"]["total_trades"] += 1
             
@@ -310,13 +312,13 @@ def process_strategy(state, records):
         else:
             state["bs_pred"] = "WAIT"
 
-        # 🚀 Number Prediction Logic (Skip 1 Round -> Next Issue - 2)
-        target_num_issue_str = str(next_issue_int - 2)
+        # 🚀 Number Prediction Logic (Next Issue - 3)
+        target_num_issue_str = str(next_issue_int - 3)
         target_num_record = next((x for x in state["full_history"] if x["issue"] == target_num_issue_str), None)
         
         if target_num_record:
             state["num_pred"] = get_number_prediction(target_num_record["num"])
-            # जर 0 किंवा 5 असेल तर WAIT येईल. अशावेळी आपण B/S पण थांबवणार.
+            # जर 0 किंवा 5 असेल तर WAIT येईल. अशावेळी आपण B/S पण थांबवणार. (Level Skip)
             if state["num_pred"] == "WAIT":
                 state["bs_pred"] = "WAIT" 
         else:
@@ -383,7 +385,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_1m = render_game_panel(state_1m)
     return Group(
-        Align.center("[bold yellow]🚀 1 MINUTE BOT (B/S: 20th | Num: Exact Pairs Skip 1)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 1 MINUTE BOT (B/S: 20th | Num: Exact Pairs Skip - 3)[/bold yellow]\n"),
         Align.center(p_1m)
     )
 

@@ -42,10 +42,11 @@ def create_state(name, interval):
         
         "bs_level": 1, 
         "color_level": 1, 
+        "num_level": 1, # ✅ Number साठी Level जोडली
         
         "full_history": [], 
         "history": [],
-        "stats": {"bs_win": 0, "bs_fail": 0, "color_win": 0, "color_fail": 0, "total_trades": 0},
+        "stats": {"bs_win": 0, "bs_fail": 0, "color_win": 0, "color_fail": 0, "num_win": 0, "num_fail": 0, "total_trades": 0}, # ✅ Number Stats जोडले
         "is_running": False,       
         "active_chat_id": None,   
         "live_records": []
@@ -97,7 +98,7 @@ def telegram_listener():
             pass
         time.sleep(2)
 
-def send_telegram_signal(state, issue, bs_pred, color_pred, num_pred, bs_level, color_level, prev_res_text=None):
+def send_telegram_signal(state, issue, bs_pred, color_pred, num_pred, bs_level, color_level, num_level, prev_res_text=None):
     target_chat_id = TARGET_GROUP_ID
     if not target_chat_id: return
 
@@ -117,7 +118,7 @@ def send_telegram_signal(state, issue, bs_pred, color_pred, num_pred, bs_level, 
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
         text += f"📏 *B/S Pred:* *{bs_pred_text}* | 🎯 L{bs_level}\n"
         text += f"🎨 *Color Pred:* *{color_pred}* | 🎯 L{color_level}\n"
-        text += f"🔢 *Number Pred:* *{num_pred}*\n\n"
+        text += f"🔢 *Number Pred:* *{num_pred}* | 🎯 L{num_level}\n\n" # ✅ Number ला पण लेव्हल जोडली
         
     send_telegram_message_direct(target_chat_id, text)
 
@@ -129,7 +130,6 @@ def fetch_history_records(url, state):
     }
     all_records = []
     
-    # आधी ३० रेकॉर्ड्स एकत्र आणण्याचा प्रयत्न
     try:
         params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
         response = api_session.get(url, headers=headers, params=params, timeout=3)
@@ -141,7 +141,6 @@ def fetch_history_records(url, state):
     except Exception:
         pass
         
-    # जर API ने फक्त १० च रेकॉर्ड्स दिले, तर पेज २ आणि ३ पण आणेल
     if len(all_records) <= 10:
         for p in [2, 3]:
             try:
@@ -169,7 +168,6 @@ def process_strategy(state, records):
     latest_bs = "Big" if int(latest_number_str) >= 5 else "Small"
     latest_color = get_color(latest_number_str)
 
-    # मेमरीमध्ये रेकॉर्ड्स अत्यंत वेगाने सेव्ह करणे
     existing_issues = {x["issue"] for x in state["full_history"]}
     for rec in records:
         iss = str(rec.get("issueNumber") or rec.get("issue") or "")
@@ -185,7 +183,7 @@ def process_strategy(state, records):
             existing_issues.add(iss)
                 
     state["full_history"].sort(key=lambda x: int(x["issue"]), reverse=True)
-    state["full_history"] = state["full_history"][:60] # मेमरीमध्ये ६० राऊंड्स सुरक्षित राहतील
+    state["full_history"] = state["full_history"][:60] 
 
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
@@ -194,7 +192,6 @@ def process_strategy(state, records):
         
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         
-        # 🚀 ANTI-WAIT SYSTEM
         if target_record:
             state["bs_pred"] = target_record["bs"]
             state["color_pred"] = target_record["color"]
@@ -209,7 +206,7 @@ def process_strategy(state, records):
             state["num_pred"] = "WAIT"
         
         if state["is_running"]:
-            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"], state["color_level"])
+            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"], state["color_level"], state["num_level"])
         return True
 
     if state["last_processed_issue"] != latest_issue:
@@ -220,31 +217,33 @@ def process_strategy(state, records):
         if state["bs_pred"] != "WAIT":
             state["stats"]["total_trades"] += 1
             
-            # --- B/S Win/Fail Logic ---
+            # --- Win/Fail Logic ---
             bs_win = (state["bs_pred"] == latest_bs)
             bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
             
-            # --- Color Win/Fail Logic ---
             color_win = False
-            # "Green" आला किंवा "Green & Violet" आला तरीही Green ची प्रेडिक्शन Win होते
             if "Green" in state["color_pred"] and "Green" in latest_color:
                 color_win = True
             elif "Red" in state["color_pred"] and "Red" in latest_color:
                 color_win = True
+
+            # ✅ Number Win Logic जोडले
+            num_win = (str(state["num_pred"]) == str(latest_number_str))
             
-            # ✅/❌ चिन्हे सेट करणे (नवा बदल)
+            # ✅/❌ चिन्हे सेट करणे
             bs_mark = "✅" if bs_win else "❌"
             color_mark = "✅" if color_win else "❌"
+            num_mark = "✅" if num_win else "❌"
             
-            # मागील राऊंडचा निकाल (अधिक सुटसुटीत आणि चिन्हांसह)
             prev_res_text = (
                 f"📏 B/S: *{latest_bs}* {bs_mark}\n"
                 f"🎨 Color: *{latest_color}* {color_mark}\n"
-                f"🔢 Num: *{latest_number_str}*"
+                f"🔢 Num: *{latest_number_str}* {num_mark}"
             )
             
             current_bs_level = state["bs_level"]
             current_color_level = state["color_level"]
+            current_num_level = state["num_level"] # ✅ Number Level Variable
             
             # B/S Level Update
             if bs_win:
@@ -262,13 +261,24 @@ def process_strategy(state, records):
                 state["stats"]["color_win"] += 1
                 state["color_level"] = 1 
                 color_res_status = f"{state['color_pred']} ✅ WIN"
-                # जर B/S हरला असेल तरच नवीन ओळीवर मेसेज टाकण्यासाठी
                 if not bs_win: prev_res_text += f"\n" 
                 prev_res_text += f"\n🎨🎉 *CONGRATS! COLOR WIN!* 🎉🎨"
             else:
                 state["stats"]["color_fail"] += 1
                 state["color_level"] += 1
                 color_res_status = f"{state['color_pred']} ❌ FAIL"
+
+            # ✅ Number Level Update 
+            if num_win:
+                state["stats"]["num_win"] += 1
+                state["num_level"] = 1 # जिंकला की लेव्हल १
+                num_res_status = f"{state['num_pred']} ✅ WIN"
+                if not (bs_win or color_win): prev_res_text += f"\n"
+                prev_res_text += f"\n🔢🎉 *CONGRATS! NUMBER WIN!* 🎉🔢"
+            else:
+                state["stats"]["num_fail"] += 1
+                state["num_level"] += 1 # हरला की लेव्हल वाढणार
+                num_res_status = f"{state['num_pred']} ❌ FAIL"
                     
             state["history"].append({
                 "trade": state["stats"]["total_trades"], 
@@ -277,8 +287,11 @@ def process_strategy(state, records):
                 "bs_pred": state["bs_pred"],
                 "bs_res": "[green]✅ WIN[/]" if "WIN" in bs_res_status else "[red]❌ FAIL[/]",
                 "color_level": f"L{current_color_level}",
-                "color_pred": state["color_pred"].split()[0], # Only shows 'Green' or 'Red'
-                "color_res": "[green]✅ WIN[/]" if "WIN" in color_res_status else "[red]❌ FAIL[/]"
+                "color_pred": state["color_pred"].split()[0],
+                "color_res": "[green]✅ WIN[/]" if "WIN" in color_res_status else "[red]❌ FAIL[/]",
+                "num_level": f"L{current_num_level}",
+                "num_pred": state["num_pred"],
+                "num_res": "[green]✅ WIN[/]" if "WIN" in num_res_status else "[red]❌ FAIL[/]"
             })
             if len(state["history"]) > 3: state["history"].pop(0)
 
@@ -287,7 +300,6 @@ def process_strategy(state, records):
         
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         
-        # 🚀 ANTI-WAIT SYSTEM
         if target_record:
             state["bs_pred"] = target_record["bs"]
             state["color_pred"] = target_record["color"]
@@ -302,7 +314,7 @@ def process_strategy(state, records):
             state["num_pred"] = "WAIT"
 
         if state["is_running"]:
-            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"], state["color_level"], prev_res_text)
+            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"], state["color_level"], state["num_level"], prev_res_text)
 
         state["last_processed_issue"] = latest_issue
         return True
@@ -314,7 +326,7 @@ def worker_30s():
         records = fetch_history_records(url, state_30s)
         if records:
             process_strategy(state_30s, records)
-        time.sleep(1) # ३० सेकंदाच्या गेमसाठी १ सेकंदाचा रिफ्रेश रेट अगदी योग्य आहे
+        time.sleep(1)
 
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
@@ -327,7 +339,7 @@ def render_game_panel(state):
         bs_color = "dark_orange" if state["bs_pred"] == "Big" else "bright_blue"
         ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})"
         color_text = f"[bold]{state['color_pred']}[/] (L{state['color_level']})"
-        num_text = f"[bold magenta]{state['num_pred']}[/]"
+        num_text = f"[bold magenta]{state['num_pred']}[/] (L{state['num_level']})" # ✅ Number UI Update
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
@@ -337,28 +349,31 @@ def render_game_panel(state):
     panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
     panel_text += f"📊 [bold]B/S Stats   - W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/]\n"
     panel_text += f"🎨 [bold]Color Stats - W:[/] [green]{state['stats']['color_win']}[/] | [bold]F:[/] [red]{state['stats']['color_fail']}[/]\n"
+    panel_text += f"🔢 [bold]Num Stats   - W:[/] [green]{state['stats']['num_win']}[/] | [bold]F:[/] [red]{state['stats']['num_fail']}[/]\n" # ✅ Number Stats जोडले
     
-    # Table updated to show both B/S Level and Color Level
-    hist_table = Table(show_header=True, width=55)
+    # Table updated to show B/S, Color and Number Level
+    hist_table = Table(show_header=True, width=72) # ✅ टेबलची साईझ थोडी वाढवली जेणेकरून सगळं दिसेल
     hist_table.add_column("Iss", justify="center")
     hist_table.add_column("B/S(L)", justify="center")
     hist_table.add_column("B-Res", justify="center")
     hist_table.add_column("Col(L)", justify="center")
     hist_table.add_column("C-Res", justify="center")
+    hist_table.add_column("Num(L)", justify="center") # ✅
     
     if not state["history"]:
-        hist_table.add_row("-", "-", "-", "-", "-")
+        hist_table.add_row("-", "-", "-", "-", "-", "-")
     else:
         for h in state["history"]: 
             hist_table.add_row(
                 str(h["issue"]), 
                 f"{h['bs_pred'][0]}({h['bs_level']})", 
-                str(h["bs_res"]),
+                str(h["bs_res"])[0:13], # ✅ टेबल छान दिसावा म्हणून फक्त ✅/❌ दाखवेल
                 f"{h['color_pred'][:3]}({h['color_level']})",
-                str(h["color_res"])
+                str(h["color_res"])[0:13],
+                f"{h['num_pred']}({h['num_level']})" # ✅ Number चा कॉलम
             )
     
-    return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']}[/]", border_style="cyan", width=60)
+    return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']}[/]", border_style="cyan", width=78)
 
 def create_master_ui():
     p_30s = render_game_panel(state_30s)

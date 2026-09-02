@@ -11,6 +11,7 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
+# (तुमचे अचूक आयडी आणि टोकन बदललेले नाहीत)
 TELEGRAM_TOKEN = "8577275461:AAF8lWPac3WCgbHp8XPvU_lO289oHcMdOE8" 
 TARGET_GROUP_ID = "-5202202128"  # <--- ३० सेकंदाच्या चॅनेल/ग्रुपचा आयडी
 
@@ -21,29 +22,29 @@ PASS_30S = "11111"   # ३० सेकंदाच्या गेमसाठ�
 # ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session तयार करणे
 api_session = requests.Session()
 
-# 🚀 नवीन Number Prediction Logic (आलटून-पालटून अचूक जोड्या आणि Violet साठी WAIT)
+# 🚀 नवीन Number Prediction Logic (अचूक २० वा राऊंड, आलटून-पालटून जोड्या आणि Violet)
 def get_number_prediction(target_num_str):
     if not target_num_str or not str(target_num_str).isdigit():
         return "WAIT"
     
     num = int(target_num_str)
     
-    # जर Violet (0 किंवा 5) असेल तर थांबायचं (WAIT) - लेव्हल स्किप
-    if num in [0, 5]:
-        return "WAIT"
+    # जर Violet (0 किंवा 5) असेल तर तोच नंबर प्रेडिक्शन म्हणून द्यायचा
+    if num == 0: return "0"
+    if num == 5: return "5"
         
     # आलटून पालटून नंबर जोड्या
-    if num == 9: return "9, 7"
-    elif num == 7: return "7, 9"
+    if num == 1: return "3, 1"
+    elif num == 3: return "1, 3"
     
-    elif num == 1: return "1, 3"
-    elif num == 3: return "3, 1"
+    elif num == 2: return "4, 2"
+    elif num == 4: return "2, 4"
     
-    elif num == 8: return "8, 6"
-    elif num == 6: return "6, 8"
+    elif num == 6: return "8, 6"
+    elif num == 8: return "6, 8"
     
-    elif num == 4: return "4, 2"
-    elif num == 2: return "2, 4"
+    elif num == 7: return "9, 7"
+    elif num == 9: return "7, 9"
     
     return "WAIT"
 
@@ -127,7 +128,7 @@ def send_telegram_signal(state, issue, bs_pred, num_pred, bs_level, num_level, p
     text += f"🎟️ *New Issue:* {issue}\n\n"
     
     if bs_pred == "WAIT" or num_pred == "WAIT":
-        text += f"⏳ *Violet Detected / Wait...*\n_No prediction for this round._\n"
+        text += f"⏳ *Building History Data...*\n_Waiting for enough data to sync..._\n"
     else:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
         text += f"📏 *B/S Pred:* *{bs_pred_text}* | 🎯 L{bs_level}\n"
@@ -201,26 +202,19 @@ def process_strategy(state, records):
         state["last_processed_issue"] = latest_issue
         next_issue_int = int(latest_issue) + 1
         
-        # 🚀 B/S System (20th round logic)
-        target_bs_issue_str = str(next_issue_int - 20) 
-        target_bs_record = next((x for x in state["full_history"] if x["issue"] == target_bs_issue_str), None)
-        if target_bs_record:
-            state["bs_pred"] = target_bs_record["bs"]
-        else:
-            state["bs_pred"] = "WAIT"
-            
-        # 🚀 Number Prediction Logic (Next Issue - 3) - उदा. 827 साठी 824 चा निकाल 
-        target_num_issue_str = str(next_issue_int - 3)
-        target_num_record = next((x for x in state["full_history"] if x["issue"] == target_num_issue_str), None)
+        # 🚀 B/S आणि Number System (अचूक 20th round logic)
+        target_issue_str = str(next_issue_int - 20) 
+        target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         
-        if target_num_record:
-            state["num_pred"] = get_number_prediction(target_num_record["num"])
-            # जर 0 किंवा 5 असेल तर WAIT येईल. अशावेळी आपण B/S पण थांबवणार. (Level Skip)
-            if state["num_pred"] == "WAIT":
-                state["bs_pred"] = "WAIT" 
+        if target_record:
+            state["bs_pred"] = target_record["bs"]
+            state["num_pred"] = get_number_prediction(target_record["num"])
+        elif len(state["full_history"]) >= 20:
+            state["bs_pred"] = state["full_history"][19]["bs"]
+            state["num_pred"] = get_number_prediction(state["full_history"][19]["num"])
         else:
-            state["num_pred"] = "WAIT"
             state["bs_pred"] = "WAIT"
+            state["num_pred"] = "WAIT"
         
         if state["is_running"]:
             send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["num_pred"], state["bs_level"], state["num_level"])
@@ -231,7 +225,7 @@ def process_strategy(state, records):
 
         prev_res_text = ""
         
-        # जेव्हा "WAIT" असेल तेव्हा हा ब्लॉक रन होणार नाही (म्हणजे Level Skip होईल)
+        # जेव्हा "WAIT" असेल तेव्हा हा ब्लॉक रन होणार नाही
         if state["bs_pred"] != "WAIT" and state["num_pred"] != "WAIT":
             state["stats"]["total_trades"] += 1
             
@@ -292,26 +286,19 @@ def process_strategy(state, records):
 
         next_issue_int = int(latest_issue) + 1
         
-        # 🚀 B/S System (20th round logic)
-        target_bs_issue_str = str(next_issue_int - 20)
-        target_bs_record = next((x for x in state["full_history"] if x["issue"] == target_bs_issue_str), None)
-        if target_bs_record:
-            state["bs_pred"] = target_bs_record["bs"]
-        else:
-            state["bs_pred"] = "WAIT"
-
-        # 🚀 Number Prediction Logic (Next Issue - 3) - उदा. 827 साठी 824 चा निकाल
-        target_num_issue_str = str(next_issue_int - 3)
-        target_num_record = next((x for x in state["full_history"] if x["issue"] == target_num_issue_str), None)
+        # 🚀 B/S आणि Number System (अचूक 20th round logic)
+        target_issue_str = str(next_issue_int - 20)
+        target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         
-        if target_num_record:
-            state["num_pred"] = get_number_prediction(target_num_record["num"])
-            # जर 0 किंवा 5 असेल तर WAIT येईल. अशावेळी आपण B/S पण थांबवणार. (Level Skip)
-            if state["num_pred"] == "WAIT":
-                state["bs_pred"] = "WAIT" 
+        if target_record:
+            state["bs_pred"] = target_record["bs"]
+            state["num_pred"] = get_number_prediction(target_record["num"])
+        elif len(state["full_history"]) >= 20:
+            state["bs_pred"] = state["full_history"][19]["bs"]
+            state["num_pred"] = get_number_prediction(state["full_history"][19]["num"])
         else:
-            state["num_pred"] = "WAIT"
             state["bs_pred"] = "WAIT"
+            state["num_pred"] = "WAIT"
 
         if state["is_running"]:
             send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["num_pred"], state["bs_level"], state["num_level"], prev_res_text)
@@ -332,7 +319,7 @@ def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
     
     if state["bs_pred"] == "WAIT" or state["num_pred"] == "WAIT":
-        ui_text = "[yellow]WAIT (Violet/Syncing...)[/]"
+        ui_text = "[yellow]WAIT (Syncing...)[/]"
         num_text = "WAIT"
     else:
         bs_color = "dark_orange" if state["bs_pred"] == "Big" else "bright_blue"
@@ -373,7 +360,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S SUPERFAST BOT (B/S: 20th | Num: Exact Pairs Skip - 3)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S SUPERFAST BOT (B/S & Num: 20th Round Exact Pairs)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

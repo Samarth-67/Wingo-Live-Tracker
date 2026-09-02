@@ -12,31 +12,40 @@ console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
 TELEGRAM_TOKEN = "8577275461:AAF8lWPac3WCgbHp8XPvU_lO289oHcMdOE8" 
-TARGET_GROUP_ID = "-5202202128"  
-PASS_30S = "11111"   
+TARGET_GROUP_ID = "-5202202128"  # <--- ३० सेकंदाच्या चॅनेल/ग्रुपचा आयडी
+
+# 🔐 सिक्रेट पासवर्ड
+PASS_30S = "11111"   # ३० सेकंदाच्या गेमसाठी
 # ----------------------------------------
 
 # ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session तयार करणे (यामुळे स्पीड वाढतो)
 api_session = requests.Session()
+
+# कलर ओळखण्यासाठी फंक्शन
+def get_color(num_str):
+    num = int(num_str)
+    if num in [1, 3, 7, 9]: return "Green 🟢"
+    elif num in [2, 4, 6, 8]: return "Red 🔴"
+    elif num == 0: return "Red & Violet 🔴🟣"
+    elif num == 5: return "Green & Violet 🟢🟣"
+    return "Unknown"
 
 def create_state(name, interval):
     return {
         "name": name,
         "interval": interval,
         "last_processed_issue": None,
+        
         "bs_pred": "WAIT", 
+        "color_pred": "WAIT",
+        "num_pred": "WAIT",
+        
         "bs_level": 1, 
+        "color_level": 1, 
         
-        # 💰 फंड मॅनेजमेंट (Virtual Wallet, Safe Mode & Auto-Withdrawal)
-        "balance": 20000.0,  # सुरुवातीचा फंड
-        # 👇 नवीन ६ लेव्हल्स सेट केल्या आहेत (50, 120, 250, 600, 1200, 2400)
-        "bet_amounts": {1: 50, 2: 120, 3: 250, 4: 600, 5: 1200, 6: 2400}, 
-        "total_withdrawn": 0.0, # एकूण काढलेली रक्कम
-        "withdrawal_count": 0,  # किती वेळा काढले
-        
-        "full_history": [], # 🚀 बॉटची स्वतःची अचूक मेमरी
+        "full_history": [], 
         "history": [],
-        "stats": {"bs_win": 0, "bs_fail": 0, "total_trades": 0},
+        "stats": {"bs_win": 0, "bs_fail": 0, "color_win": 0, "color_fail": 0, "total_trades": 0},
         "is_running": False,       
         "active_chat_id": None,   
         "live_records": []
@@ -46,11 +55,10 @@ state_30s = create_state("WinGo 30S", "30S")
 
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
-    # 🚀 Async Background Sending (मेसेज फास्ट जाईल)
+    # 🚀 Async Background Sending (मेसेज अजिबात अडकणार नाही)
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
-            # येथे api_session वापरला आहे
             api_session.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=3)
         except Exception:
             pass
@@ -69,17 +77,15 @@ def telegram_listener():
                     chat_id = message.get("chat", {}).get("id")
                     text = message.get("text", "").strip()
 
-                    # 🟢 START BOT
                     if text.startswith("/signal"):
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == PASS_30S:
                             state_30s["is_running"] = True
                             state_30s["active_chat_id"] = chat_id
-                            send_telegram_message_direct(chat_id, f"✅ *[30S Strategy] Activated! Live Prediction is ON.*\n💰 *Initial Fund:* ₹20,000")
+                            send_telegram_message_direct(chat_id, f"✅ *[30S Strategy] Activated! Live Prediction is ON.*")
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                                 
-                    # 🔴 STOP BOT
                     elif text.startswith("/stop"):
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == PASS_30S:
@@ -87,69 +93,43 @@ def telegram_listener():
                             send_telegram_message_direct(chat_id, "🛑 *[30S Strategy] Stopped Successfully!*")
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
-                    
-                    # 🔄 RESET WALLET COMMAND
-                    elif text.startswith("/reset"):
-                        parts = text.split()
-                        if len(parts) == 2 and parts[1] == PASS_30S:
-                            state_30s["balance"] = 20000.0
-                            state_30s["total_withdrawn"] = 0.0
-                            state_30s["withdrawal_count"] = 0
-                            state_30s["bs_level"] = 1
-                            state_30s["bs_pred"] = "WAIT"
-                            send_telegram_message_direct(chat_id, "🔄 *Wallet Reset Successfully!*\n💰 *Current Balance:* ₹20,000\n🏦 *Withdrawal History Cleared.*")
-                        else:
-                            send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
         except Exception:
             pass
         time.sleep(2)
 
-def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
+def send_telegram_signal(state, issue, bs_pred, color_pred, num_pred, bs_level, color_level, prev_res_text=None):
     target_chat_id = TARGET_GROUP_ID
     if not target_chat_id: return
 
     game_name = state["name"]
-    text = f"🚀 *VSR {game_name} Trend Follower* 🚀\n\n"
+    text = f"🚀 *VSR {game_name} 20th Round Follower* 🚀\n\n"
     
-    if state["stats"]["total_trades"] > 0 and prev_bs_res and prev_bs_res != "-":
+    if state["stats"]["total_trades"] > 0 and prev_res_text:
         text += f"🔄 *Last Trade Result:*\n"
-        text += f"📏 B/S: *{prev_bs_res}*\n"
-        if "WIN" in prev_bs_res: text += f"\n🔥🎉 *CONGRATS! WIN!* 🎉🔥\n"
+        text += f"{prev_res_text}\n"
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
         
-    text += f"🎟️ *New Issue:* {issue}\n"
-    text += f"💰 *Current Balance:* ₹{state['balance']:.2f}\n"
-    
-    # जर विड्रॉवल झाले असेल तरच दाखवा
-    if state['total_withdrawn'] > 0:
-        text += f"🏦 *Total Withdrawn:* ₹{state['total_withdrawn']:.0f} ({state['withdrawal_count']} times)\n"
-    text += "\n"
+    text += f"🎟️ *New Issue:* {issue}\n\n"
     
     if bs_pred == "WAIT":
         text += f"⏳ *Building History Data...*\n_Waiting for issue {int(issue)-20} to sync..._\n"
     else:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
-        current_bet = state["bet_amounts"].get(bs_level, 0) # लेव्हल ७+ असेल तर रक्कम ० (Virtual Mode)
-        
-        text += f"📏 *Prediction:* *{bs_pred_text}*\n"
-        text += f"🎯 *Level:* L{bs_level}\n"
-        
-        # 🛡️ Virtual Mode चा मेसेज 
-        if current_bet > 0:
-            text += f"💵 *Bet Amount:* ₹{current_bet}\n\n"
-        else:
-            text += f"🛡️ *Bet Amount:* ₹0 (Virtual Mode / Safe)\n\n"
+        text += f"📏 *B/S Pred:* *{bs_pred_text}* | 🎯 L{bs_level}\n"
+        text += f"🎨 *Color Pred:* *{color_pred}* | 🎯 L{color_level}\n"
+        text += f"🔢 *Number Pred:* *{num_pred}*\n\n"
         
     send_telegram_message_direct(target_chat_id, text)
 
 def fetch_history_records(url, state):
     headers = {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://draw.ar-lottery01.com/",
     }
     all_records = []
     
+    # आधी ३० रेकॉर्ड्स एकत्र आणण्याचा प्रयत्न
     try:
         params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
         response = api_session.get(url, headers=headers, params=params, timeout=3)
@@ -161,6 +141,7 @@ def fetch_history_records(url, state):
     except Exception:
         pass
         
+    # जर API ने फक्त १० च रेकॉर्ड्स दिले, तर पेज २ आणि ३ पण आणेल
     if len(all_records) <= 10:
         for p in [2, 3]:
             try:
@@ -186,19 +167,25 @@ def process_strategy(state, records):
     
     if not (latest_number_str.isdigit() and latest_issue.isdigit()): return False
     latest_bs = "Big" if int(latest_number_str) >= 5 else "Small"
+    latest_color = get_color(latest_number_str)
 
-    # 🚀 सुपरफास्ट मेमरी सेव्हिंग (O(1) Lookup)
+    # मेमरीमध्ये रेकॉर्ड्स अत्यंत वेगाने सेव्ह करणे
     existing_issues = {x["issue"] for x in state["full_history"]}
     for rec in records:
         iss = str(rec.get("issueNumber") or rec.get("issue") or "")
         num_str = str(rec.get("number") or rec.get("drawNumber") or "")
         if iss.isdigit() and num_str.isdigit() and iss not in existing_issues:
             bs_val = "Big" if int(num_str) >= 5 else "Small"
-            state["full_history"].append({"issue": iss, "bs": bs_val})
+            state["full_history"].append({
+                "issue": iss, 
+                "bs": bs_val, 
+                "num": num_str, 
+                "color": get_color(num_str)
+            })
             existing_issues.add(iss)
                 
     state["full_history"].sort(key=lambda x: int(x["issue"]), reverse=True)
-    state["full_history"] = state["full_history"][:60]
+    state["full_history"] = state["full_history"][:60] # मेमरीमध्ये ६० राऊंड्स सुरक्षित राहतील
 
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
@@ -207,90 +194,115 @@ def process_strategy(state, records):
         
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         
+        # 🚀 ANTI-WAIT SYSTEM
         if target_record:
             state["bs_pred"] = target_record["bs"]
+            state["color_pred"] = target_record["color"]
+            state["num_pred"] = target_record["num"]
         elif len(state["full_history"]) >= 20:
-            state["bs_pred"] = state["full_history"][19]["bs"] 
+            state["bs_pred"] = state["full_history"][19]["bs"]
+            state["color_pred"] = state["full_history"][19]["color"]
+            state["num_pred"] = state["full_history"][19]["num"]
         else:
             state["bs_pred"] = "WAIT"
+            state["color_pred"] = "WAIT"
+            state["num_pred"] = "WAIT"
         
         if state["is_running"]:
-            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["bs_level"])
+            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"], state["color_level"])
         return True
 
     if state["last_processed_issue"] != latest_issue:
         if int(latest_issue) <= int(state["last_processed_issue"]): return False  
 
-        bs_res_status = "-"
+        prev_res_text = ""
         
         if state["bs_pred"] != "WAIT":
             state["stats"]["total_trades"] += 1
+            
+            # --- B/S Win/Fail Logic ---
             bs_win = (state["bs_pred"] == latest_bs)
             bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
             
-            # 💰 सध्याच्या लेव्हलचा फंड (लेव्हल ७ किंवा पुढे ० रुपये असेल)
-            current_bet = state["bet_amounts"].get(state["bs_level"], 0)
+            # --- Color Win/Fail Logic ---
+            color_win = False
+            # "Green" आला किंवा "Green & Violet" आला तरीही Green ची प्रेडिक्शन Win होते
+            if "Green" in state["color_pred"] and "Green" in latest_color:
+                color_win = True
+            elif "Red" in state["color_pred"] and "Red" in latest_color:
+                color_win = True
             
+            # ✅/❌ चिन्हे सेट करणे (नवा बदल)
+            bs_mark = "✅" if bs_win else "❌"
+            color_mark = "✅" if color_win else "❌"
+            
+            # मागील राऊंडचा निकाल (अधिक सुटसुटीत आणि चिन्हांसह)
+            prev_res_text = (
+                f"📏 B/S: *{latest_bs}* {bs_mark}\n"
+                f"🎨 Color: *{latest_color}* {color_mark}\n"
+                f"🔢 Num: *{latest_number_str}*"
+            )
+            
+            current_bs_level = state["bs_level"]
+            current_color_level = state["color_level"]
+            
+            # B/S Level Update
             if bs_win:
                 state["stats"]["bs_win"] += 1
-                
-                # जर रिअल ट्रेडिंग असेल (L1 ते L6)
-                if current_bet > 0:
-                    net_profit = current_bet * 0.96 # (०.९६ पट प्रॉफिट)
-                    state["balance"] += net_profit
-                    bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN (+₹{net_profit:.0f})"
-                else:
-                    # जर Virtual Mode मध्ये जिंकला (L7+)
-                    bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN (Virtual Mode)"
-                
-                # जिंकल्यावर कोणतीही लेव्हल असो, पुन्हा लेव्हल १ वर रिसेट
-                old_level = state["bs_level"]
                 state["bs_level"] = 1 
+                bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
+                prev_res_text += f"\n\n🔥🎉 *CONGRATS! B/S WIN!* 🎉🔥"
             else:
                 state["stats"]["bs_fail"] += 1
-                
-                # जर रिअल ट्रेडिंग असेल (L1 ते L6)
-                if current_bet > 0:
-                    state["balance"] -= current_bet
-                    bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL (-₹{current_bet})"
-                else:
-                    # जर Virtual Mode मध्ये हरला (L7+)
-                    bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL (Virtual Mode)"
-                
-                # हरल्यावर पुढची लेव्हल घेणे (७, ८, ९... Virtual मध्ये चालत राहील)
-                old_level = state["bs_level"]
                 state["bs_level"] += 1
-            
-            # 🏦 AUTO-WITHDRAWAL LOGIC (Principal २०,००० + Profit ४,००० = २४,०००)
-            # जेव्हा बॅलन्स २४,००० किंवा त्याहून अधिक होईल, तेव्हाच ४,००० विड्रॉ होतील आणि २०,००० तसेच राहतील.
-            while state["balance"] >= 24000.0:
-                state["balance"] -= 4000.0
-                state["total_withdrawn"] += 4000.0
-                state["withdrawal_count"] += 1
-                bs_res_status += "\n🎉 *AUTO-WITHDRAW: ₹4000 Transferred!*"
-
+                bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
+                
+            # Color Level Update
+            if color_win:
+                state["stats"]["color_win"] += 1
+                state["color_level"] = 1 
+                color_res_status = f"{state['color_pred']} ✅ WIN"
+                # जर B/S हरला असेल तरच नवीन ओळीवर मेसेज टाकण्यासाठी
+                if not bs_win: prev_res_text += f"\n" 
+                prev_res_text += f"\n🎨🎉 *CONGRATS! COLOR WIN!* 🎉🎨"
+            else:
+                state["stats"]["color_fail"] += 1
+                state["color_level"] += 1
+                color_res_status = f"{state['color_pred']} ❌ FAIL"
+                    
             state["history"].append({
-                "trade": state["stats"]["total_trades"], "issue": latest_issue[-4:],
-                "bs_level": f"L{old_level}", 
+                "trade": state["stats"]["total_trades"], 
+                "issue": latest_issue[-4:],
+                "bs_level": f"L{current_bs_level}", 
                 "bs_pred": state["bs_pred"],
-                "bs_res": "[green]WIN[/]" if "WIN" in bs_res_status else "[red]FAIL[/]"
+                "bs_res": "[green]✅ WIN[/]" if "WIN" in bs_res_status else "[red]❌ FAIL[/]",
+                "color_level": f"L{current_color_level}",
+                "color_pred": state["color_pred"].split()[0], # Only shows 'Green' or 'Red'
+                "color_res": "[green]✅ WIN[/]" if "WIN" in color_res_status else "[red]❌ FAIL[/]"
             })
-            if len(state["history"]) > 4: state["history"].pop(0)
+            if len(state["history"]) > 3: state["history"].pop(0)
 
         next_issue_int = int(latest_issue) + 1
         target_issue_str = str(next_issue_int - 20)
         
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         
+        # 🚀 ANTI-WAIT SYSTEM
         if target_record:
             state["bs_pred"] = target_record["bs"]
+            state["color_pred"] = target_record["color"]
+            state["num_pred"] = target_record["num"]
         elif len(state["full_history"]) >= 20:
             state["bs_pred"] = state["full_history"][19]["bs"]
+            state["color_pred"] = state["full_history"][19]["color"]
+            state["num_pred"] = state["full_history"][19]["num"]
         else:
             state["bs_pred"] = "WAIT"
+            state["color_pred"] = "WAIT"
+            state["num_pred"] = "WAIT"
 
         if state["is_running"]:
-            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["bs_level"], bs_res_status)
+            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"], state["color_level"], prev_res_text)
 
         state["last_processed_issue"] = latest_issue
         return True
@@ -302,47 +314,56 @@ def worker_30s():
         records = fetch_history_records(url, state_30s)
         if records:
             process_strategy(state_30s, records)
-        time.sleep(1) # ३० सेकंदाचा फास्ट रिफ्रेश
+        time.sleep(1) # ३० सेकंदाच्या गेमसाठी १ सेकंदाचा रिफ्रेश रेट अगदी योग्य आहे
 
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
     
     if state["bs_pred"] == "WAIT":
         ui_text = "[yellow]WAIT (Syncing...)[/]"
+        color_text = "WAIT"
+        num_text = "WAIT"
     else:
         bs_color = "dark_orange" if state["bs_pred"] == "Big" else "bright_blue"
-        current_bet = state["bet_amounts"].get(state["bs_level"], 0)
-        ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']} - ₹{current_bet})"
+        ui_text = f"[{bs_color}]{state['bs_pred']}[/] (L{state['bs_level']})"
+        color_text = f"[bold]{state['color_pred']}[/] (L{state['color_level']})"
+        num_text = f"[bold magenta]{state['num_pred']}[/]"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
-    panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n📏 [bold]Pred:[/] {ui_text}\n"
-    panel_text += f"💰 [bold green]Wallet:[/] ₹{state['balance']:.2f}\n"
-    
-    if state['total_withdrawn'] > 0:
-        panel_text += f"🏦 [bold magenta]Withdrawn:[/] ₹{state['total_withdrawn']:.0f} ({state['withdrawal_count']}x)\n"
-        
+    panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
+    panel_text += f"📏 [bold]B/S Pred:[/] {ui_text}\n"
+    panel_text += f"🎨 [bold]Color:[/] {color_text}  |  🔢 [bold]Num:[/] {num_text}\n"
     panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
-    panel_text += f"📊 [bold]W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/]\n"
+    panel_text += f"📊 [bold]B/S Stats   - W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/]\n"
+    panel_text += f"🎨 [bold]Color Stats - W:[/] [green]{state['stats']['color_win']}[/] | [bold]F:[/] [red]{state['stats']['color_fail']}[/]\n"
     
-    hist_table = Table(show_header=False, width=42)
-    hist_table.add_column("Issue", justify="center")
-    hist_table.add_column("Level", justify="center")
-    hist_table.add_column("Pred", justify="center")
-    hist_table.add_column("Res", justify="center")
+    # Table updated to show both B/S Level and Color Level
+    hist_table = Table(show_header=True, width=55)
+    hist_table.add_column("Iss", justify="center")
+    hist_table.add_column("B/S(L)", justify="center")
+    hist_table.add_column("B-Res", justify="center")
+    hist_table.add_column("Col(L)", justify="center")
+    hist_table.add_column("C-Res", justify="center")
     
     if not state["history"]:
-        hist_table.add_row("-", "-", "-", "-")
+        hist_table.add_row("-", "-", "-", "-", "-")
     else:
         for h in state["history"]: 
-            hist_table.add_row(str(h["issue"]), str(h["bs_level"]), str(h["bs_pred"]), str(h["bs_res"]))
+            hist_table.add_row(
+                str(h["issue"]), 
+                f"{h['bs_pred'][0]}({h['bs_level']})", 
+                str(h["bs_res"]),
+                f"{h['color_pred'][:3]}({h['color_level']})",
+                str(h["color_res"])
+            )
     
-    return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']} (Fund Manager)[/]", border_style="cyan", width=48)
+    return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']}[/]", border_style="cyan", width=60)
 
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S SUPERFAST BOT (6-Level Safe Mode)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S SUPERFAST BOT (20th Round Tracking)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 
@@ -352,7 +373,6 @@ if __name__ == "__main__":
     
     t_list.start(); t_30s.start()
 
-    # 🚀 Live UI चा वेग वाढवला आहे
     with Live(create_master_ui(), console=console, refresh_per_second=4, screen=False) as live:
         while True:
             live.update(create_master_ui())

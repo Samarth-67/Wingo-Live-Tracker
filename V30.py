@@ -102,7 +102,7 @@ def send_telegram_signal(state, issue, bs_pred, color_pred, num_pred, bs_level, 
     if not target_chat_id: return
 
     game_name = state["name"]
-    text = f"🚀 *VSR {game_name} 20th Round Follower* 🚀\n\n"
+    text = f"🚀 *VSR {game_name} Follower* 🚀\n\n"
     
     if state["stats"]["total_trades"] > 0 and prev_res_text:
         text += f"🔄 *Last Trade Result:*\n"
@@ -111,8 +111,8 @@ def send_telegram_signal(state, issue, bs_pred, color_pred, num_pred, bs_level, 
         
     text += f"🎟️ *New Issue:* {issue}\n\n"
     
-    if bs_pred == "WAIT":
-        text += f"⏳ *Building History Data...*\n_Waiting for issue {int(issue)-20} to sync..._\n"
+    if bs_pred == "WAIT" or color_pred == "WAIT":
+        text += f"⏳ *Building History Data...*\n_Waiting for enough data to sync..._\n"
     else:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
         text += f"📏 *B/S Pred:* *{bs_pred_text}* | 🎯 L{bs_level}\n"
@@ -190,23 +190,31 @@ def process_strategy(state, records):
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
         next_issue_int = int(latest_issue) + 1
-        target_issue_str = str(next_issue_int - 20) 
         
+        # 🚀 ANTI-WAIT SYSTEM for B/S and Num (20th round logic)
+        target_issue_str = str(next_issue_int - 20) 
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         
-        # 🚀 ANTI-WAIT SYSTEM
         if target_record:
             state["bs_pred"] = target_record["bs"]
-            state["color_pred"] = target_record["color"]
             state["num_pred"] = target_record["num"]
         elif len(state["full_history"]) >= 20:
             state["bs_pred"] = state["full_history"][19]["bs"]
-            state["color_pred"] = state["full_history"][19]["color"]
             state["num_pred"] = state["full_history"][19]["num"]
         else:
             state["bs_pred"] = "WAIT"
-            state["color_pred"] = "WAIT"
             state["num_pred"] = "WAIT"
+
+        # 🎨 New Color Logic: (Skip one round back) e.g. 576 -> predict for 577 based on 574
+        target_color_issue_str = str(next_issue_int - 3) 
+        target_color_record = next((x for x in state["full_history"] if x["issue"] == target_color_issue_str), None)
+        
+        if target_color_record:
+            state["color_pred"] = target_color_record["color"]
+        elif len(state["full_history"]) >= 3:
+            state["color_pred"] = state["full_history"][2]["color"]
+        else:
+            state["color_pred"] = "WAIT"
         
         if state["is_running"]:
             send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"], state["color_level"])
@@ -232,11 +240,11 @@ def process_strategy(state, records):
             elif "Red" in state["color_pred"] and "Red" in latest_color:
                 color_win = True
             
-            # ✅/❌ चिन्हे सेट करणे (नवा बदल)
+            # ✅/❌ चिन्हे सेट करणे
             bs_mark = "✅" if bs_win else "❌"
             color_mark = "✅" if color_win else "❌"
             
-            # मागील राऊंडचा निकाल (अधिक सुटसुटीत आणि चिन्हांसह)
+            # मागील राऊंडचा निकाल
             prev_res_text = (
                 f"📏 B/S: *{latest_bs}* {bs_mark}\n"
                 f"🎨 Color: *{latest_color}* {color_mark}\n"
@@ -262,7 +270,6 @@ def process_strategy(state, records):
                 state["stats"]["color_win"] += 1
                 state["color_level"] = 1 
                 color_res_status = f"{state['color_pred']} ✅ WIN"
-                # जर B/S हरला असेल तरच नवीन ओळीवर मेसेज टाकण्यासाठी
                 if not bs_win: prev_res_text += f"\n" 
                 prev_res_text += f"\n🎨🎉 *CONGRATS! COLOR WIN!* 🎉🎨"
             else:
@@ -283,23 +290,31 @@ def process_strategy(state, records):
             if len(state["history"]) > 3: state["history"].pop(0)
 
         next_issue_int = int(latest_issue) + 1
-        target_issue_str = str(next_issue_int - 20)
         
+        # 🚀 ANTI-WAIT SYSTEM for B/S and Num (20th round logic)
+        target_issue_str = str(next_issue_int - 20)
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         
-        # 🚀 ANTI-WAIT SYSTEM
         if target_record:
             state["bs_pred"] = target_record["bs"]
-            state["color_pred"] = target_record["color"]
             state["num_pred"] = target_record["num"]
         elif len(state["full_history"]) >= 20:
             state["bs_pred"] = state["full_history"][19]["bs"]
-            state["color_pred"] = state["full_history"][19]["color"]
             state["num_pred"] = state["full_history"][19]["num"]
         else:
             state["bs_pred"] = "WAIT"
-            state["color_pred"] = "WAIT"
             state["num_pred"] = "WAIT"
+
+        # 🎨 New Color Logic: (Skip one round back)
+        target_color_issue_str = str(next_issue_int - 3) 
+        target_color_record = next((x for x in state["full_history"] if x["issue"] == target_color_issue_str), None)
+        
+        if target_color_record:
+            state["color_pred"] = target_color_record["color"]
+        elif len(state["full_history"]) >= 3:
+            state["color_pred"] = state["full_history"][2]["color"]
+        else:
+            state["color_pred"] = "WAIT"
 
         if state["is_running"]:
             send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"], state["color_level"], prev_res_text)
@@ -319,7 +334,7 @@ def worker_30s():
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
     
-    if state["bs_pred"] == "WAIT":
+    if state["bs_pred"] == "WAIT" or state["color_pred"] == "WAIT":
         ui_text = "[yellow]WAIT (Syncing...)[/]"
         color_text = "WAIT"
         num_text = "WAIT"
@@ -363,7 +378,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S SUPERFAST BOT (20th Round Tracking)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S SUPERFAST BOT (B/S: 20th | Color: Skip 1)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

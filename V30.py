@@ -23,16 +23,16 @@ api_session = requests.Session()
 
 # 🚀 नवीन Number Prediction Logic (आलटून-पालटून अचूक जोड्या आणि Violet साठी WAIT)
 def get_number_prediction(target_num_str):
-    if not target_num_str or not target_num_str.isdigit():
+    if not target_num_str or not str(target_num_str).isdigit():
         return "WAIT"
     
     num = int(target_num_str)
     
-    # जर Violet (0 किंवा 5) असेल तर थांबायचं (WAIT)
+    # जर Violet (0 किंवा 5) असेल तर थांबायचं (WAIT) - लेव्हल स्किप
     if num in [0, 5]:
         return "WAIT"
         
-    # आलटून पालटून नंबर जोड्या (तुम्ही सांगितल्याप्रमाणे)
+    # आलटून पालटून नंबर जोड्या
     if num == 9: return "9, 7"
     elif num == 7: return "7, 9"
     
@@ -209,13 +209,13 @@ def process_strategy(state, records):
         else:
             state["bs_pred"] = "WAIT"
             
-        # 🚀 Number Prediction Logic (Skip 1 Round -> Next Issue - 2)
-        target_num_issue_str = str(next_issue_int - 2)
+        # 🚀 Number Prediction Logic (Next Issue - 3) - उदा. 827 साठी 824 चा निकाल 
+        target_num_issue_str = str(next_issue_int - 3)
         target_num_record = next((x for x in state["full_history"] if x["issue"] == target_num_issue_str), None)
         
         if target_num_record:
             state["num_pred"] = get_number_prediction(target_num_record["num"])
-            # जर 0 किंवा 5 असेल तर WAIT येईल. अशावेळी आपण B/S पण थांबवणार.
+            # जर 0 किंवा 5 असेल तर WAIT येईल. अशावेळी आपण B/S पण थांबवणार. (Level Skip)
             if state["num_pred"] == "WAIT":
                 state["bs_pred"] = "WAIT" 
         else:
@@ -231,6 +231,7 @@ def process_strategy(state, records):
 
         prev_res_text = ""
         
+        # जेव्हा "WAIT" असेल तेव्हा हा ब्लॉक रन होणार नाही (म्हणजे Level Skip होईल)
         if state["bs_pred"] != "WAIT" and state["num_pred"] != "WAIT":
             state["stats"]["total_trades"] += 1
             
@@ -238,7 +239,7 @@ def process_strategy(state, records):
             bs_win = (state["bs_pred"] == latest_bs)
             bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
 
-            # 🚀 --- नवीन Number Win/Fail Logic (दोन पैकी एक नंबर आला तरी Win) ---
+            # 🚀 --- नवीन Number Win/Fail Logic ---
             num_win = str(latest_number_str) in state["num_pred"] 
             
             # ✅/❌ चिन्हे सेट करणे
@@ -299,13 +300,13 @@ def process_strategy(state, records):
         else:
             state["bs_pred"] = "WAIT"
 
-        # 🚀 Number Prediction Logic (Skip 1 Round -> Next Issue - 2)
-        target_num_issue_str = str(next_issue_int - 2)
+        # 🚀 Number Prediction Logic (Next Issue - 3) - उदा. 827 साठी 824 चा निकाल
+        target_num_issue_str = str(next_issue_int - 3)
         target_num_record = next((x for x in state["full_history"] if x["issue"] == target_num_issue_str), None)
         
         if target_num_record:
             state["num_pred"] = get_number_prediction(target_num_record["num"])
-            # जर 0 किंवा 5 असेल तर WAIT येईल. अशावेळी आपण B/S पण थांबवणार.
+            # जर 0 किंवा 5 असेल तर WAIT येईल. अशावेळी आपण B/S पण थांबवणार. (Level Skip)
             if state["num_pred"] == "WAIT":
                 state["bs_pred"] = "WAIT" 
         else:
@@ -372,7 +373,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S SUPERFAST BOT (B/S: 20th | Num: Exact Pairs Skip 1 + Violet Wait)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S SUPERFAST BOT (B/S: 20th | Num: Exact Pairs Skip - 3)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

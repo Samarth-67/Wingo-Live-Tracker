@@ -12,24 +12,40 @@ TARGET_GROUP_ID = "-1004370895879"
 SECRET_PASSWORD = "12345"   
 # ------------------------------------------------------------
 
+# ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session (Code 1 मधून)
+api_session = requests.Session()
+
+# 🎨 कलर ओळखण्यासाठी फंक्शन (Code 1 मधून)
+def get_color(num_str):
+    num = int(num_str)
+    if num in [1, 3, 7, 9]: return "Green 🟢"
+    elif num in [2, 4, 6, 8]: return "Red 🔴"
+    elif num == 0: return "Red & Violet 🔴🟣"
+    elif num == 5: return "Green & Violet 🟢🟣"
+    return "Unknown"
+
 # 🚀 Global State for Logic & Dashboard
 bot_state = {
     "name": "WinGo 1M",
     "last_processed_issue": "Waiting...",
     "bs_pred": "WAIT", 
+    "color_pred": "WAIT",
+    "num_pred": "WAIT",
     "bs_level": 1, 
+    "color_level": 1, 
     
     # 💰 फंड मॅनेजमेंट (Virtual Wallet, Safe Mode & Auto-Withdrawal)
     "balance": 20000.0,  
-    # 👇 ६ लेव्हल्सचे नवीन सेटिंग (७ व्या लेव्हलपासून रक्कम शून्य होईल)
     "bet_amounts": {1: 50, 2: 120, 3: 250, 4: 600, 5: 1200, 6: 2400}, 
-    "total_withdrawn": 0.0, # एकूण काढलेली रक्कम
-    "withdrawal_count": 0,  # किती वेळा काढले
+    "total_withdrawn": 0.0,
+    "withdrawal_count": 0, 
     
     "full_history": [], 
     "history": [],
     "bs_win": 0, 
     "bs_fail": 0, 
+    "color_win": 0,
+    "color_fail": 0,
     "total_trades": 0,
     
     "is_running": False,       
@@ -41,7 +57,7 @@ def send_telegram_message_direct(chat_id, text):
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         try:
-            requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=3)
+            api_session.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=3)
         except Exception:
             pass
     threading.Thread(target=_send, daemon=True).start()
@@ -52,7 +68,7 @@ def telegram_listener():
     while True:
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={offset}&timeout=2"
-            response = requests.get(url, timeout=5)
+            response = api_session.get(url, timeout=5)
             if response.status_code == 200:
                 for result in response.json().get("result", []):
                     offset = result["update_id"] + 1
@@ -78,7 +94,7 @@ def telegram_listener():
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                             
-                    # 🔄 RESET WALLET COMMAND (नवीन ऍड केली आहे)
+                    # 🔄 RESET WALLET COMMAND
                     elif text.startswith("/reset"):
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == SECRET_PASSWORD:
@@ -86,7 +102,10 @@ def telegram_listener():
                             bot_state["total_withdrawn"] = 0.0
                             bot_state["withdrawal_count"] = 0
                             bot_state["bs_level"] = 1
+                            bot_state["color_level"] = 1
                             bot_state["bs_pred"] = "WAIT"
+                            bot_state["color_pred"] = "WAIT"
+                            bot_state["num_pred"] = "WAIT"
                             bot_state["last_result_text"] = "Wallet Reset Successfully!"
                             send_telegram_message_direct(chat_id, "🔄 *Wallet Reset Successfully!*\n💰 *Current Balance:* ₹20,000\n🏦 *Withdrawal History Cleared.*")
                         else:
@@ -95,22 +114,20 @@ def telegram_listener():
             pass
         time.sleep(2)
 
-def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
+def send_telegram_signal(state, issue, bs_pred, color_pred, num_pred, bs_level, color_level, prev_res_text=None):
     target_chat_id = TARGET_GROUP_ID
     if not target_chat_id: return
 
-    text = f"🚀 *VSR WINGO Signals 1 Minute* 🚀\n\n"
+    text = f"🚀 *VSR WINGO 1M 20th Round Follower* 🚀\n\n"
     
-    if state["total_trades"] > 0 and prev_bs_res and prev_bs_res != "-":
+    if state["total_trades"] > 0 and prev_res_text:
         text += f"🔄 *Last Trade Result:*\n"
-        text += f"📏 B/S: *{prev_bs_res}*\n"
-        if "WIN" in prev_bs_res: text += f"\n🔥🎉 *CONGRATS! WIN!* 🎉🔥\n"
+        text += f"{prev_res_text}\n"
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
         
     text += f"🎟️ *Prediction For Ticket:* {issue}\n"
     text += f"💰 *Current Balance:* ₹{state['balance']:.2f}\n"
     
-    # जर विड्रॉवल झाले असेल तरच दाखवा
     if state['total_withdrawn'] > 0:
         text += f"🏦 *Total Withdrawn:* ₹{state['total_withdrawn']:.0f} ({state['withdrawal_count']} times)\n"
     text += "\n"
@@ -121,16 +138,18 @@ def send_telegram_signal(state, issue, bs_pred, bs_level, prev_bs_res=None):
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
         current_bet = state["bet_amounts"].get(bs_level, 0)
         
-        text += f"📏 *B/S Pred:* *{bs_pred_text}*\n"
-        text += f"🎯 *Level:* L{bs_level}\n"
+        text += f"📏 *B/S Pred:* *{bs_pred_text}* | 🎯 L{bs_level}\n"
+        text += f"🎨 *Color Pred:* *{color_pred}* | 🎯 L{color_level}\n"
+        text += f"🔢 *Number Pred:* *{num_pred}*\n\n"
         
         if current_bet > 0:
-            text += f"💵 *Bet Amount:* ₹{current_bet}\n\n"
+            text += f"💵 *Bet Amount (B/S):* ₹{current_bet}\n\n"
         else:
-            text += f"🛡️ *Bet Amount:* ₹0 (Virtual Mode / Safe)\n\n"
+            text += f"🛡️ *Bet Amount (B/S):* ₹0 (Virtual Mode / Safe)\n\n"
         
     send_telegram_message_direct(target_chat_id, text)
 
+# 🚀 फास्ट मल्टी-पेज हिस्ट्री (Code 1 मधून)
 def fetch_history_records(url, state):
     headers = {
         "User-Agent": "Mozilla/5.0",
@@ -141,7 +160,7 @@ def fetch_history_records(url, state):
     
     try:
         params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
-        response = requests.get(url, headers=headers, params=params, timeout=3)
+        response = api_session.get(url, headers=headers, params=params, timeout=3)
         if response.status_code == 200:
             data = response.json()
             if "data" in data and isinstance(data["data"], list): all_records.extend(data["data"])
@@ -154,7 +173,7 @@ def fetch_history_records(url, state):
         for p in [2, 3]:
             try:
                 params = {"pageSize": 10, "pageNo": p, "ts": int(time.time() * 1000)}
-                response = requests.get(url, headers=headers, params=params, timeout=2)
+                response = api_session.get(url, headers=headers, params=params, timeout=2)
                 if response.status_code == 200:
                     data = response.json()
                     if "data" in data and isinstance(data["data"], list): all_records.extend(data["data"])
@@ -165,6 +184,7 @@ def fetch_history_records(url, state):
             
     return all_records
 
+# 🎯 20th Round Accurate Logic (Code 1 मधून)
 def process_strategy(state, records):
     if not records: return False
     
@@ -173,15 +193,23 @@ def process_strategy(state, records):
     latest_number_str = str(latest_item.get("number") or latest_item.get("drawNumber") or "-")
     
     if not (latest_number_str.isdigit() and latest_issue.isdigit()): return False
+    
     latest_bs = "Big" if int(latest_number_str) >= 5 else "Small"
+    latest_color = get_color(latest_number_str)
 
+    existing_issues = {x["issue"] for x in state["full_history"]}
     for rec in records:
         iss = str(rec.get("issueNumber") or rec.get("issue") or "")
         num_str = str(rec.get("number") or rec.get("drawNumber") or "")
-        if iss.isdigit() and num_str.isdigit():
-            if not any(x["issue"] == iss for x in state["full_history"]):
-                bs_val = "Big" if int(num_str) >= 5 else "Small"
-                state["full_history"].append({"issue": iss, "bs": bs_val})
+        if iss.isdigit() and num_str.isdigit() and iss not in existing_issues:
+            bs_val = "Big" if int(num_str) >= 5 else "Small"
+            state["full_history"].append({
+                "issue": iss, 
+                "bs": bs_val, 
+                "num": num_str, 
+                "color": get_color(num_str)
+            })
+            existing_issues.add(iss)
                 
     state["full_history"].sort(key=lambda x: int(x["issue"]), reverse=True)
     state["full_history"] = state["full_history"][:60]
@@ -196,26 +224,52 @@ def process_strategy(state, records):
         
         if target_record:
             state["bs_pred"] = target_record["bs"]
+            state["color_pred"] = target_record["color"]
+            state["num_pred"] = target_record["num"]
         elif len(state["full_history"]) >= 20:
-            state["bs_pred"] = state["full_history"][19]["bs"] 
+            state["bs_pred"] = state["full_history"][19]["bs"]
+            state["color_pred"] = state["full_history"][19]["color"]
+            state["num_pred"] = state["full_history"][19]["num"]
         else:
             state["bs_pred"] = "WAIT"
+            state["color_pred"] = "WAIT"
+            state["num_pred"] = "WAIT"
         
         if state["is_running"]:
-            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["bs_level"])
+            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"], state["color_level"])
         return True
 
-    # --- Next Trades ---
+    # --- Next Trades (Analysis & Wallet Logic Combine) ---
     if state["last_processed_issue"] != latest_issue and state["last_processed_issue"] != "Waiting...":
         if int(latest_issue) <= int(state["last_processed_issue"]): return False  
 
+        prev_res_text = ""
         bs_res_status = "-"
         
         if state["bs_pred"] != "WAIT":
             state["total_trades"] += 1
+            
+            # --- B/S Win/Fail Logic ---
             bs_win = (state["bs_pred"] == latest_bs)
             bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
             
+            # --- Color Win/Fail Logic ---
+            color_win = False
+            if "Green" in state["color_pred"] and "Green" in latest_color:
+                color_win = True
+            elif "Red" in state["color_pred"] and "Red" in latest_color:
+                color_win = True
+                
+            bs_mark = "✅" if bs_win else "❌"
+            color_mark = "✅" if color_win else "❌"
+            
+            prev_res_text = (
+                f"📏 B/S: *{latest_bs}* {bs_mark}\n"
+                f"🎨 Color: *{latest_color}* {color_mark}\n"
+                f"🔢 Num: *{latest_number_str}*"
+            )
+            
+            # --- Wallet & B/S Logic (From Code 2) ---
             current_bet = state["bet_amounts"].get(state["bs_level"], 0)
             
             if bs_win:
@@ -223,39 +277,40 @@ def process_strategy(state, records):
                 if current_bet > 0:
                     net_profit = current_bet * 0.96
                     state["balance"] += net_profit
-                    bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN (+₹{net_profit:.0f})"
+                    prev_res_text += f"\n\n🔥🎉 *CONGRATS! B/S WIN! (+₹{net_profit:.0f})* 🎉🔥"
                 else:
-                    bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN (Virtual Mode)"
+                    prev_res_text += f"\n\n🔥🎉 *CONGRATS! B/S WIN! (Virtual)* 🎉🔥"
                 
-                old_level = state["bs_level"]
                 state["bs_level"] = 1 
             else:
                 state["bs_fail"] += 1
                 if current_bet > 0:
                     state["balance"] -= current_bet
-                    bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL (-₹{current_bet})"
+                    prev_res_text += f"\n\n❌ *B/S FAIL (-₹{current_bet})* ❌"
                 else:
-                    bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL (Virtual Mode)"
+                    prev_res_text += f"\n\n❌ *B/S FAIL (Virtual)* ❌"
                 
-                old_level = state["bs_level"]
                 state["bs_level"] += 1
+                
+            # --- Color Level Update (From Code 1) ---
+            if color_win:
+                state["color_win"] += 1
+                state["color_level"] = 1 
+                prev_res_text += f"\n🎨🎉 *COLOR WIN!* 🎉🎨"
+            else:
+                state["color_fail"] += 1
+                state["color_level"] += 1
             
             # 🏦 AUTO-WITHDRAWAL LOGIC (Principal २०,००० + Profit ४,००० = २४,०००)
             while state["balance"] >= 24000.0:
                 state["balance"] -= 4000.0
                 state["total_withdrawn"] += 4000.0
                 state["withdrawal_count"] += 1
-                bs_res_status += "\n🎉 *AUTO-WITHDRAW: ₹4000 Transferred!*"
+                prev_res_text += "\n🎉 *AUTO-WITHDRAW: ₹4000 Transferred!*"
 
-            state["history"].append({
-                "trade": state["total_trades"], "issue": latest_issue[-4:],
-                "bs_level": f"L{old_level}", 
-                "bs_pred": state["bs_pred"],
-                "bs_res": "WIN" if "WIN" in bs_res_status else "FAIL"
-            })
-            if len(state["history"]) > 5: state["history"].pop(0)
-            state["last_result_text"] = bs_res_status
+            state["last_result_text"] = prev_res_text
 
+        # Calculate next target (20th round)
         next_issue_int = int(latest_issue) + 1
         target_issue_str = str(next_issue_int - 20)
         
@@ -263,13 +318,19 @@ def process_strategy(state, records):
         
         if target_record:
             state["bs_pred"] = target_record["bs"]
+            state["color_pred"] = target_record["color"]
+            state["num_pred"] = target_record["num"]
         elif len(state["full_history"]) >= 20:
             state["bs_pred"] = state["full_history"][19]["bs"]
+            state["color_pred"] = state["full_history"][19]["color"]
+            state["num_pred"] = state["full_history"][19]["num"]
         else:
             state["bs_pred"] = "WAIT"
+            state["color_pred"] = "WAIT"
+            state["num_pred"] = "WAIT"
 
         if state["is_running"]:
-            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["bs_level"], bs_res_status)
+            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"], state["color_level"], prev_res_text)
 
         state["last_processed_issue"] = latest_issue
         return True
@@ -307,7 +368,7 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="card">
-        <h1>🚀 VSR 1M Manager (6-Level Safe)</h1>
+        <h1>🚀 VSR 1M 20th Round (6-Level Safe)</h1>
         <div class="subtitle">
             Bot Status: <span id="timer_status" class="status-badge">INACTIVE</span>
         </div>
@@ -315,11 +376,13 @@ HTML_TEMPLATE = """
         <div class="wallet-box">
             <div style="font-size: 14px; color: #a7f3d0;">💰 Virtual Wallet Balance</div>
             <div class="wallet-amt" id="balance">₹ 20,000.00</div>
-            <div style="font-size: 13px; color: #6ee7b7;">W: <span id="w_cnt">0</span> | F: <span id="f_cnt">0</span></div>
+            <div style="font-size: 13px; color: #6ee7b7;">B/S - W: <span id="w_cnt">0</span> | F: <span id="f_cnt">0</span></div>
         </div>
         
         <div class="metric"><span>🎟️ Next Ticket:</span> <span class="highlight" id="last_issue">Loading...</span></div>
-        <div class="metric"><span>📏 Prediction:</span> <span class="highlight" id="bs_info">-</span></div>
+        <div class="metric"><span>📏 B/S Pred:</span> <span class="highlight" id="bs_info">-</span></div>
+        <div class="metric"><span>🎨 Color Pred:</span> <span class="highlight" id="color_info">-</span></div>
+        <div class="metric"><span>🔢 Num Pred:</span> <span class="highlight" id="num_info">-</span></div>
         <div class="metric"><span>💵 Bet Amount:</span> <span class="highlight" style="color:#facc15;" id="bet_info">₹ 0</span></div>
         
         <div class="metric"><span>🏦 Total Withdrawn:</span> <span class="withdraw-highlight" id="withdrawn_info">₹ 0 (0x)</span></div>
@@ -341,20 +404,25 @@ HTML_TEMPLATE = """
                     
                     document.getElementById('last_issue').innerText = nextIss;
                     
+                    // Predictions Update
                     let bsText = data.bs_pred;
-                    if(data.bs_pred !== "WAIT") {
-                        bsText += " (L" + data.bs_level + ")";
-                    }
+                    if(data.bs_pred !== "WAIT") bsText += " (L" + data.bs_level + ")";
                     document.getElementById('bs_info').innerText = bsText;
                     
+                    let colText = data.color_pred;
+                    if(data.color_pred !== "WAIT") colText += " (L" + data.color_level + ")";
+                    document.getElementById('color_info').innerText = colText;
+                    
+                    document.getElementById('num_info').innerText = data.num_pred;
+                    
+                    // Wallet Update
                     document.getElementById('balance').innerText = "₹ " + parseFloat(data.balance).toFixed(2);
                     document.getElementById('w_cnt').innerText = data.bs_win;
                     document.getElementById('f_cnt').innerText = data.bs_fail;
                     
-                    // अपडेट विड्रॉवल
                     document.getElementById('withdrawn_info').innerText = "₹ " + data.total_withdrawn + " (" + data.withdrawal_count + " times)";
                     
-                    // डायनॅमिक बेट अमाऊंट कॅल्क्युलेशन (६ लेव्हल्सनुसार)
+                    // Dynamic Bet Calculation
                     let current_bet = 0;
                     if(data.bs_level <= 6) {
                         if(data.bs_level === 1) current_bet = 50;
@@ -373,9 +441,11 @@ HTML_TEMPLATE = """
                         document.getElementById('bet_info').innerText = "₹ " + current_bet;
                     }
                     
+                    // Result Box Formatting
                     let formatted_result = data.last_result_text.replace(/\\n/g, "<br>");
                     document.getElementById('last_result').innerHTML = "<b>📊 Last Trade Status:</b><br>" + formatted_result;
                     
+                    // Status Badge
                     const statusBadge = document.getElementById('timer_status');
                     if (data.is_running) {
                         statusBadge.innerText = "ACTIVE (Running)";

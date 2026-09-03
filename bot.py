@@ -12,10 +12,10 @@ TARGET_GROUP_ID = "-1004370895879"
 SECRET_PASSWORD = "12345"   
 # ------------------------------------------------------------
 
-# ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session (Code 1 मधून)
+# ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session
 api_session = requests.Session()
 
-# 🎨 कलर ओळखण्यासाठी फंक्शन (Code 1 मधून)
+# 🎨 कलर ओळखण्यासाठी फंक्शन
 def get_color(num_str):
     num = int(num_str)
     if num in [1, 3, 7, 9]: return "Green 🟢"
@@ -30,15 +30,8 @@ bot_state = {
     "last_processed_issue": "Waiting...",
     "bs_pred": "WAIT", 
     "color_pred": "WAIT",
-    "num_pred": "WAIT",
     "bs_level": 1, 
     "color_level": 1, 
-    
-    # 💰 फंड मॅनेजमेंट (Virtual Wallet, Safe Mode & Auto-Withdrawal)
-    "balance": 20000.0,  
-    "bet_amounts": {1: 50, 2: 120, 3: 250, 4: 600, 5: 1200, 6: 2400}, 
-    "total_withdrawn": 0.0,
-    "withdrawal_count": 0, 
     
     "full_history": [], 
     "history": [],
@@ -81,7 +74,7 @@ def telegram_listener():
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == SECRET_PASSWORD:
                             bot_state["is_running"] = True
-                            send_telegram_message_direct(chat_id, f"✅ *[1M Strategy] Activated! Live Prediction is ON.*\n💰 *Initial Fund:* ₹20,000")
+                            send_telegram_message_direct(chat_id, f"✅ *[1M Strategy] Activated! Live Prediction is ON.*")
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                                 
@@ -94,27 +87,27 @@ def telegram_listener():
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                             
-                    # 🔄 RESET WALLET COMMAND
+                    # 🔄 RESET COMMAND
                     elif text.startswith("/reset"):
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == SECRET_PASSWORD:
-                            bot_state["balance"] = 20000.0
-                            bot_state["total_withdrawn"] = 0.0
-                            bot_state["withdrawal_count"] = 0
                             bot_state["bs_level"] = 1
                             bot_state["color_level"] = 1
                             bot_state["bs_pred"] = "WAIT"
                             bot_state["color_pred"] = "WAIT"
-                            bot_state["num_pred"] = "WAIT"
-                            bot_state["last_result_text"] = "Wallet Reset Successfully!"
-                            send_telegram_message_direct(chat_id, "🔄 *Wallet Reset Successfully!*\n💰 *Current Balance:* ₹20,000\n🏦 *Withdrawal History Cleared.*")
+                            bot_state["bs_win"] = 0
+                            bot_state["bs_fail"] = 0
+                            bot_state["color_win"] = 0
+                            bot_state["color_fail"] = 0
+                            bot_state["last_result_text"] = "Stats Reset Successfully!"
+                            send_telegram_message_direct(chat_id, "🔄 *Levels & Stats Reset Successfully!*\nLevels are back to L1.")
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
         except Exception:
             pass
         time.sleep(2)
 
-def send_telegram_signal(state, issue, bs_pred, color_pred, num_pred, bs_level, color_level, prev_res_text=None):
+def send_telegram_signal(state, issue, bs_pred, color_pred, bs_level, color_level, prev_res_text=None):
     target_chat_id = TARGET_GROUP_ID
     if not target_chat_id: return
 
@@ -125,31 +118,19 @@ def send_telegram_signal(state, issue, bs_pred, color_pred, num_pred, bs_level, 
         text += f"{prev_res_text}\n"
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
         
-    text += f"🎟️ *Prediction For Ticket:* {issue}\n"
-    text += f"💰 *Current Balance:* ₹{state['balance']:.2f}\n"
-    
-    if state['total_withdrawn'] > 0:
-        text += f"🏦 *Total Withdrawn:* ₹{state['total_withdrawn']:.0f} ({state['withdrawal_count']} times)\n"
-    text += "\n"
+    text += f"🎟️ *Prediction For Ticket:* {issue}\n\n"
     
     if bs_pred == "WAIT":
         text += f"⏳ *Building History Data...*\n_Waiting for issue {int(issue)-20} to sync..._\n"
     else:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
-        current_bet = state["bet_amounts"].get(bs_level, 0)
         
         text += f"📏 *B/S Pred:* *{bs_pred_text}* | 🎯 L{bs_level}\n"
-        text += f"🎨 *Color Pred:* *{color_pred}* | 🎯 L{color_level}\n"
-        text += f"🔢 *Number Pred:* *{num_pred}*\n\n"
-        
-        if current_bet > 0:
-            text += f"💵 *Bet Amount (B/S):* ₹{current_bet}\n\n"
-        else:
-            text += f"🛡️ *Bet Amount (B/S):* ₹0 (Virtual Mode / Safe)\n\n"
+        text += f"🎨 *Color Pred:* *{color_pred}* | 🎯 L{color_level}\n\n"
         
     send_telegram_message_direct(target_chat_id, text)
 
-# 🚀 फास्ट मल्टी-पेज हिस्ट्री (Code 1 मधून)
+# 🚀 फास्ट मल्टी-पेज हिस्ट्री
 def fetch_history_records(url, state):
     headers = {
         "User-Agent": "Mozilla/5.0",
@@ -184,7 +165,7 @@ def fetch_history_records(url, state):
             
     return all_records
 
-# 🎯 20th Round Accurate Logic (Code 1 मधून)
+# 🎯 20th Round Accurate Logic
 def process_strategy(state, records):
     if not records: return False
     
@@ -206,7 +187,6 @@ def process_strategy(state, records):
             state["full_history"].append({
                 "issue": iss, 
                 "bs": bs_val, 
-                "num": num_str, 
                 "color": get_color(num_str)
             })
             existing_issues.add(iss)
@@ -225,33 +205,28 @@ def process_strategy(state, records):
         if target_record:
             state["bs_pred"] = target_record["bs"]
             state["color_pred"] = target_record["color"]
-            state["num_pred"] = target_record["num"]
         elif len(state["full_history"]) >= 20:
             state["bs_pred"] = state["full_history"][19]["bs"]
             state["color_pred"] = state["full_history"][19]["color"]
-            state["num_pred"] = state["full_history"][19]["num"]
         else:
             state["bs_pred"] = "WAIT"
             state["color_pred"] = "WAIT"
-            state["num_pred"] = "WAIT"
         
         if state["is_running"]:
-            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"], state["color_level"])
+            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["color_pred"], state["bs_level"], state["color_level"])
         return True
 
-    # --- Next Trades (Analysis & Wallet Logic Combine) ---
+    # --- Next Trades (Analysis & Levels Logic Combine) ---
     if state["last_processed_issue"] != latest_issue and state["last_processed_issue"] != "Waiting...":
         if int(latest_issue) <= int(state["last_processed_issue"]): return False  
 
         prev_res_text = ""
-        bs_res_status = "-"
         
         if state["bs_pred"] != "WAIT":
             state["total_trades"] += 1
             
             # --- B/S Win/Fail Logic ---
             bs_win = (state["bs_pred"] == latest_bs)
-            bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
             
             # --- Color Win/Fail Logic ---
             color_win = False
@@ -265,34 +240,19 @@ def process_strategy(state, records):
             
             prev_res_text = (
                 f"📏 B/S: *{latest_bs}* {bs_mark}\n"
-                f"🎨 Color: *{latest_color}* {color_mark}\n"
-                f"🔢 Num: *{latest_number_str}*"
+                f"🎨 Color: *{latest_color}* {color_mark}"
             )
             
-            # --- Wallet & B/S Logic (From Code 2) ---
-            current_bet = state["bet_amounts"].get(state["bs_level"], 0)
-            
+            # --- Levels Update Logic ---
             if bs_win:
                 state["bs_win"] += 1
-                if current_bet > 0:
-                    net_profit = current_bet * 0.96
-                    state["balance"] += net_profit
-                    prev_res_text += f"\n\n🔥🎉 *CONGRATS! B/S WIN! (+₹{net_profit:.0f})* 🎉🔥"
-                else:
-                    prev_res_text += f"\n\n🔥🎉 *CONGRATS! B/S WIN! (Virtual)* 🎉🔥"
-                
                 state["bs_level"] = 1 
+                prev_res_text += f"\n\n🔥🎉 *CONGRATS! B/S WIN!* 🎉🔥"
             else:
                 state["bs_fail"] += 1
-                if current_bet > 0:
-                    state["balance"] -= current_bet
-                    prev_res_text += f"\n\n❌ *B/S FAIL (-₹{current_bet})* ❌"
-                else:
-                    prev_res_text += f"\n\n❌ *B/S FAIL (Virtual)* ❌"
-                
                 state["bs_level"] += 1
+                prev_res_text += f"\n\n❌ *B/S FAIL* ❌"
                 
-            # --- Color Level Update (From Code 1) ---
             if color_win:
                 state["color_win"] += 1
                 state["color_level"] = 1 
@@ -300,13 +260,6 @@ def process_strategy(state, records):
             else:
                 state["color_fail"] += 1
                 state["color_level"] += 1
-            
-            # 🏦 AUTO-WITHDRAWAL LOGIC (Principal २०,००० + Profit ४,००० = २४,०००)
-            while state["balance"] >= 24000.0:
-                state["balance"] -= 4000.0
-                state["total_withdrawn"] += 4000.0
-                state["withdrawal_count"] += 1
-                prev_res_text += "\n🎉 *AUTO-WITHDRAW: ₹4000 Transferred!*"
 
             state["last_result_text"] = prev_res_text
 
@@ -319,18 +272,15 @@ def process_strategy(state, records):
         if target_record:
             state["bs_pred"] = target_record["bs"]
             state["color_pred"] = target_record["color"]
-            state["num_pred"] = target_record["num"]
         elif len(state["full_history"]) >= 20:
             state["bs_pred"] = state["full_history"][19]["bs"]
             state["color_pred"] = state["full_history"][19]["color"]
-            state["num_pred"] = state["full_history"][19]["num"]
         else:
             state["bs_pred"] = "WAIT"
             state["color_pred"] = "WAIT"
-            state["num_pred"] = "WAIT"
 
         if state["is_running"]:
-            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["color_pred"], state["num_pred"], state["bs_level"], state["color_level"], prev_res_text)
+            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["color_pred"], state["bs_level"], state["color_level"], prev_res_text)
 
         state["last_processed_issue"] = latest_issue
         return True
@@ -356,11 +306,9 @@ HTML_TEMPLATE = """
         .card { background: #1e293b; border-radius: 16px; padding: 25px; max-width: 450px; margin: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
         h1 { color: #38bdf8; font-size: 22px; margin-bottom: 5px; }
         .subtitle { color: #94a3b8; font-size: 13px; margin-bottom: 15px; }
-        .wallet-box { background: #064e3b; padding: 15px; border-radius: 10px; border: 1px solid #10b981; margin-bottom: 15px; }
-        .wallet-amt { font-size: 28px; color: #4ade80; font-weight: bold; margin: 5px 0;}
+        .stats-box { background: #1e293b; padding: 15px; border-radius: 10px; border: 1px solid #475569; margin-bottom: 15px; }
         .metric { background: #334155; margin: 10px 0; padding: 12px; border-radius: 10px; font-size: 15px; text-align: left; display: flex; justify-content: space-between; align-items: center; }
         .highlight { color: #38bdf8; font-weight: bold; font-size: 16px; }
-        .withdraw-highlight { color: #f43f5e; font-weight: bold; font-size: 16px; }
         .result-box { background: #0f172a; margin-top: 15px; padding: 12px; border-radius: 8px; font-size: 14px; color: #cbd5e1; text-align: left; border-left: 4px solid #facc15; }
         .status-badge { background: #ef4444; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
         .status-active { background: #22c55e; }
@@ -368,24 +316,19 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="card">
-        <h1>🚀 VSR 1M 20th Round (6-Level Safe)</h1>
+        <h1>🚀 VSR 1M 20th Round Strategy</h1>
         <div class="subtitle">
             Bot Status: <span id="timer_status" class="status-badge">INACTIVE</span>
         </div>
         
-        <div class="wallet-box">
-            <div style="font-size: 14px; color: #a7f3d0;">💰 Virtual Wallet Balance</div>
-            <div class="wallet-amt" id="balance">₹ 20,000.00</div>
-            <div style="font-size: 13px; color: #6ee7b7;">B/S - W: <span id="w_cnt">0</span> | F: <span id="f_cnt">0</span></div>
+        <div class="stats-box">
+            <div style="font-size: 15px; color: #a7f3d0; margin-bottom: 5px;">📊 Performance Stats</div>
+            <div style="font-size: 14px; color: #6ee7b7;">B/S - Won: <b id="w_cnt">0</b> | Failed: <b id="f_cnt">0</b></div>
         </div>
         
         <div class="metric"><span>🎟️ Next Ticket:</span> <span class="highlight" id="last_issue">Loading...</span></div>
         <div class="metric"><span>📏 B/S Pred:</span> <span class="highlight" id="bs_info">-</span></div>
         <div class="metric"><span>🎨 Color Pred:</span> <span class="highlight" id="color_info">-</span></div>
-        <div class="metric"><span>🔢 Num Pred:</span> <span class="highlight" id="num_info">-</span></div>
-        <div class="metric"><span>💵 Bet Amount:</span> <span class="highlight" style="color:#facc15;" id="bet_info">₹ 0</span></div>
-        
-        <div class="metric"><span>🏦 Total Withdrawn:</span> <span class="withdraw-highlight" id="withdrawn_info">₹ 0 (0x)</span></div>
         
         <div class="result-box" id="last_result">
             <b>📊 Last Trade Status:</b><br>Initializing...
@@ -413,33 +356,9 @@ HTML_TEMPLATE = """
                     if(data.color_pred !== "WAIT") colText += " (L" + data.color_level + ")";
                     document.getElementById('color_info').innerText = colText;
                     
-                    document.getElementById('num_info').innerText = data.num_pred;
-                    
-                    // Wallet Update
-                    document.getElementById('balance').innerText = "₹ " + parseFloat(data.balance).toFixed(2);
+                    // Stats Update
                     document.getElementById('w_cnt').innerText = data.bs_win;
                     document.getElementById('f_cnt').innerText = data.bs_fail;
-                    
-                    document.getElementById('withdrawn_info').innerText = "₹ " + data.total_withdrawn + " (" + data.withdrawal_count + " times)";
-                    
-                    // Dynamic Bet Calculation
-                    let current_bet = 0;
-                    if(data.bs_level <= 6) {
-                        if(data.bs_level === 1) current_bet = 50;
-                        if(data.bs_level === 2) current_bet = 120;
-                        if(data.bs_level === 3) current_bet = 250;
-                        if(data.bs_level === 4) current_bet = 600;
-                        if(data.bs_level === 5) current_bet = 1200;
-                        if(data.bs_level === 6) current_bet = 2400;
-                    }
-                    
-                    if(data.bs_pred === "WAIT") current_bet = 0;
-                    
-                    if(current_bet === 0 && data.bs_pred !== "WAIT") {
-                        document.getElementById('bet_info').innerText = "₹ 0 (Virtual Mode)";
-                    } else {
-                        document.getElementById('bet_info').innerText = "₹ " + current_bet;
-                    }
                     
                     // Result Box Formatting
                     let formatted_result = data.last_result_text.replace(/\\n/g, "<br>");

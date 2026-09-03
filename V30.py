@@ -11,7 +11,6 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-# (तुमचे अचूक आयडी आणि टोकन बदललेले नाहीत)
 TELEGRAM_TOKEN = "8577275461:AAF8lWPac3WCgbHp8XPvU_lO289oHcMdOE8" 
 TARGET_GROUP_ID = "-5202202128"  # <--- ३० सेकंदाच्या चॅनेल/ग्रुपचा आयडी
 
@@ -22,30 +21,31 @@ PASS_30S = "11111"   # ३० सेकंदाच्या गेमसाठ�
 # ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session तयार करणे
 api_session = requests.Session()
 
-# 🚀 नवीन Number Prediction Logic (अचूक २० वा राऊंड, आलटून-पालटून जोड्या आणि Violet)
-def get_number_prediction(target_num_str):
-    if not target_num_str or not str(target_num_str).isdigit():
+# 🚀 नवीन Number Prediction Logic
+def get_number_prediction(prev_num_str, r20_num_str):
+    # १) जर २० व्या राऊंडला Violet (0 किंवा 5) आला असेल -> "0, 5"
+    if r20_num_str and str(r20_num_str).isdigit():
+        r20_num = int(r20_num_str)
+        if r20_num in [0, 5]:
+            return "0, 5"
+
+    # २) अन्यथा लगेचच्या मागील (Prev - 1st) राऊंडचा निकाल बघणे
+    if not prev_num_str or not str(prev_num_str).isdigit():
         return "WAIT"
-    
-    num = int(target_num_str)
-    
-    # जर Violet (0 किंवा 5) असेल तर तोच नंबर प्रेडिक्शन म्हणून द्यायचा
-    if num == 0: return "0"
-    if num == 5: return "5"
-        
-    # आलटून पालटून नंबर जोड्या
-    if num == 1: return "3, 1"
-    elif num == 3: return "1, 3"
-    
-    elif num == 2: return "4, 2"
-    elif num == 4: return "2, 4"
-    
-    elif num == 6: return "8, 6"
-    elif num == 8: return "6, 8"
-    
-    elif num == 7: return "9, 7"
-    elif num == 9: return "7, 9"
-    
+
+    prev_num = int(prev_num_str)
+
+    if prev_num in [1, 3]:       # Small & Green -> "1, 3"
+        return "1, 3"
+    elif prev_num in [2, 4]:     # Small & Red -> "2, 4"
+        return "2, 4"
+    elif prev_num in [6, 8]:     # Big & Red -> "6, 8"
+        return "6, 8"
+    elif prev_num in [7, 9]:     # Big & Green -> "7, 9"
+        return "7, 9"
+    elif prev_num in [0, 5]:     # मागील राऊंडला व्हायलेट असल्यास "0, 5"
+        return "0, 5"
+
     return "WAIT"
 
 def create_state(name, interval):
@@ -181,7 +181,7 @@ def process_strategy(state, records):
     if not (latest_number_str.isdigit() and latest_issue.isdigit()): return False
     latest_bs = "Big" if int(latest_number_str) >= 5 else "Small"
 
-    # मेमरीमध्ये रेकॉर्ड्स अत्यंत वेगाने सेव्ह करणे
+    # मेमरीमध्ये रेकॉर्ड्स सेव्ह करणे
     existing_issues = {x["issue"] for x in state["full_history"]}
     for rec in records:
         iss = str(rec.get("issueNumber") or rec.get("issue") or "")
@@ -196,25 +196,32 @@ def process_strategy(state, records):
             existing_issues.add(iss)
                 
     state["full_history"].sort(key=lambda x: int(x["issue"]), reverse=True)
-    state["full_history"] = state["full_history"][:60] # मेमरीमध्ये ६० राऊंड्स सुरक्षित राहतील
+    state["full_history"] = state["full_history"][:60]
 
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
         next_issue_int = int(latest_issue) + 1
         
-        # 🚀 B/S आणि Number System (अचूक 20th round logic)
+        # २० वा राऊंड (B/S आणि Violet साठी)
         target_issue_str = str(next_issue_int - 20) 
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         
+        # मागील लगेचचा राऊंड (Prev - 1st)
+        prev_issue_str = str(latest_issue)
+        prev_record = next((x for x in state["full_history"] if x["issue"] == prev_issue_str), None)
+        
+        r20_num = None
         if target_record:
             state["bs_pred"] = target_record["bs"]
-            state["num_pred"] = get_number_prediction(target_record["num"])
+            r20_num = target_record["num"]
         elif len(state["full_history"]) >= 20:
             state["bs_pred"] = state["full_history"][19]["bs"]
-            state["num_pred"] = get_number_prediction(state["full_history"][19]["num"])
+            r20_num = state["full_history"][19]["num"]
         else:
             state["bs_pred"] = "WAIT"
-            state["num_pred"] = "WAIT"
+
+        prev_num = prev_record["num"] if prev_record else (state["full_history"][0]["num"] if state["full_history"] else None)
+        state["num_pred"] = get_number_prediction(prev_num, r20_num)
         
         if state["is_running"]:
             send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["num_pred"], state["bs_level"], state["num_level"])
@@ -225,7 +232,6 @@ def process_strategy(state, records):
 
         prev_res_text = ""
         
-        # जेव्हा "WAIT" असेल तेव्हा हा ब्लॉक रन होणार नाही
         if state["bs_pred"] != "WAIT" and state["num_pred"] != "WAIT":
             state["stats"]["total_trades"] += 1
             
@@ -233,10 +239,10 @@ def process_strategy(state, records):
             bs_win = (state["bs_pred"] == latest_bs)
             bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
 
-            # 🚀 --- नवीन Number Win/Fail Logic ---
+            # --- Number Win/Fail Logic ---
             num_win = str(latest_number_str) in state["num_pred"] 
             
-            # ✅/❌ चिन्हे सेट करणे
+            # ✅/❌ चिन्हे
             bs_mark = "✅" if bs_win else "❌"
             num_mark = "✅" if num_win else "❌" 
             
@@ -249,27 +255,27 @@ def process_strategy(state, records):
             current_bs_level = state["bs_level"]
             current_num_level = state["num_level"] 
             
-            # 🚀 B/S Level Update
+            # B/S Level Update
             if bs_win:
                 state["stats"]["bs_win"] += 1
-                state["bs_level"] = 1 # जिंकला की लेव्हल १
+                state["bs_level"] = 1
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
                 prev_res_text += f"\n\n🔥🎉 *CONGRATS! B/S WIN!* 🎉🔥"
             else:
                 state["stats"]["bs_fail"] += 1
-                state["bs_level"] += 1 # हरला की लेव्हल वाढणार
+                state["bs_level"] += 1
                 bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
                 
-            # 🚀 Number Level Update
+            # Number Level Update
             if num_win:
                 state["stats"]["num_win"] += 1
-                state["num_level"] = 1 # जिंकला की लेव्हल १
+                state["num_level"] = 1
                 num_res_status = f"{state['num_pred']} ✅ WIN"
                 if not bs_win: prev_res_text += f"\n"
                 prev_res_text += f"\n🔢🎉 *CONGRATS! NUMBER WIN!* 🎉🔢"
             else:
                 state["stats"]["num_fail"] += 1
-                state["num_level"] += 1 # हरला की लेव्हल वाढणार
+                state["num_level"] += 1
                 num_res_status = f"{state['num_pred']} ❌ FAIL"
                     
             state["history"].append({
@@ -282,23 +288,30 @@ def process_strategy(state, records):
                 "num_pred": state["num_pred"],
                 "num_res": "[green]✅ WIN[/]" if "WIN" in num_res_status else "[red]❌ FAIL[/]"
             })
-            if len(state["history"]) > 4: state["history"].pop(0) # शेवटचे ४ रेकॉर्ड्स ठेवू
+            if len(state["history"]) > 4: state["history"].pop(0)
 
         next_issue_int = int(latest_issue) + 1
         
-        # 🚀 B/S आणि Number System (अचूक 20th round logic)
+        # २० वा राऊंड (B/S आणि Violet साठी)
         target_issue_str = str(next_issue_int - 20)
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         
+        # मागील लगेचचा राऊंड (Prev - 1st)
+        prev_issue_str = str(latest_issue)
+        prev_record = next((x for x in state["full_history"] if x["issue"] == prev_issue_str), None)
+        
+        r20_num = None
         if target_record:
             state["bs_pred"] = target_record["bs"]
-            state["num_pred"] = get_number_prediction(target_record["num"])
+            r20_num = target_record["num"]
         elif len(state["full_history"]) >= 20:
             state["bs_pred"] = state["full_history"][19]["bs"]
-            state["num_pred"] = get_number_prediction(state["full_history"][19]["num"])
+            r20_num = state["full_history"][19]["num"]
         else:
             state["bs_pred"] = "WAIT"
-            state["num_pred"] = "WAIT"
+
+        prev_num = prev_record["num"] if prev_record else (state["full_history"][0]["num"] if state["full_history"] else None)
+        state["num_pred"] = get_number_prediction(prev_num, r20_num)
 
         if state["is_running"]:
             send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["num_pred"], state["bs_level"], state["num_level"], prev_res_text)
@@ -313,7 +326,7 @@ def worker_30s():
         records = fetch_history_records(url, state_30s)
         if records:
             process_strategy(state_30s, records)
-        time.sleep(1) # ३० सेकंदाच्या गेमसाठी १ सेकंदाचा रिफ्रेश रेट
+        time.sleep(1)
 
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
@@ -335,7 +348,6 @@ def render_game_panel(state):
     panel_text += f"📊 [bold]B/S Stats  - W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/]\n"
     panel_text += f"🔢 [bold]Num Stats  - W:[/] [green]{state['stats']['num_win']}[/] | [bold]F:[/] [red]{state['stats']['num_fail']}[/]\n" 
     
-    # Table updated to show only B/S and Number Level (Color removed)
     hist_table = Table(show_header=True, width=70) 
     hist_table.add_column("Iss", justify="center")
     hist_table.add_column("B/S(L)", justify="center")
@@ -360,7 +372,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S SUPERFAST BOT (B/S & Num: 20th Round Exact Pairs)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S SUPERFAST BOT (Updated Strategy)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

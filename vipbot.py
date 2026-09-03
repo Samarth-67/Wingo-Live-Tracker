@@ -11,28 +11,26 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-TELEGRAM_TOKEN = "7706219157:AAF-z7DfUlBtteflQNn5OsgPhbEc9XMthd4" 
+TELEGRAM_TOKEN = "7706219157:AAF-z7DfUlBtteflQNn5OsgPhbEc9XMthd4"
 TARGET_GROUP_ID = "-1004331023441"  
 
 # 🔐 सिक्रेट पासवर्ड्स
 PASS_1M = "22222"   # १ मिनिटाच्या गेमसाठी
 # ----------------------------------------
 
-# ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session तयार करणे (यामुळे स्पीड वाढतो)
+# ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session
 api_session = requests.Session()
 
-# 🚀 नवीन Number Prediction Logic (२० वा राऊंड आणि आलटून-पालटून जोड्या)
+# 🚀 नवीन Number Prediction Logic
 def get_number_prediction(target_num_str):
     if not target_num_str or not str(target_num_str).isdigit():
         return "WAIT"
     
     num = int(target_num_str)
     
-    # व्हायलेट (0 किंवा 5) आलं तर थेट तोच नंबर द्यायचा
     if num == 0: return "0"
     if num == 5: return "5"
         
-    # आलटून पालटून नंबर जोड्या (दोन प्रेडिक्शन)
     if num == 1: return "3, 1"
     elif num == 3: return "1, 3"
     
@@ -52,13 +50,10 @@ def create_state(name, interval):
         "name": name,
         "interval": interval,
         "last_processed_issue": None,
-        
         "bs_pred": "WAIT", 
         "num_pred": "WAIT",
-        
         "bs_level": 1, 
         "num_level": 1,
-        
         "full_history": [], 
         "history": [],
         "stats": {"bs_win": 0, "bs_fail": 0, "num_win": 0, "num_fail": 0, "total_trades": 0},
@@ -72,7 +67,6 @@ state_1m = create_state("WinGo 1M", "1M")
 
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
-    # 🚀 Async Background Sending (मेसेज अजिबात अडकणार नाही)
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
@@ -120,26 +114,30 @@ def telegram_listener():
             pass
         time.sleep(3)
 
+# 🚀 मेसेज पाठवण्याचे नवीन सिंगल फॉरमॅट लॉजिक
 def send_telegram_signal(state, issue, bs_pred, num_pred, bs_level, num_level, prev_res_text=None):
     target_chat_id = TARGET_GROUP_ID
     if not target_chat_id: return
 
     game_name = state["name"]
-    text = f"🚀 *VSR {game_name} Follower* 🚀\n\n"
+    
+    # फक्त एकच मेसेज ब्लॉक
+    text = f"🚀 *{game_name} New Signal* 🚀\n\n"
     
     if state["stats"]["total_trades"] > 0 and prev_res_text:
-        text += f"🔄 *Last Trade Result:*\n"
+        text += f"📊 *मागील निकाल (Previous Result):*\n"
         text += f"{prev_res_text}\n"
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
         
-    text += f"🎟️ *New Issue:* {issue}\n\n"
+    text += f"🎟️ *Next Issue:* `{issue}`\n\n"
     
     if bs_pred == "WAIT" or num_pred == "WAIT":
-        text += f"⏳ *Building History Data...*\n_Waiting for enough data to sync..._\n"
+        text += f"⏳ *Data Syncing...*\n_कृपया वाट पहा..._\n"
     else:
         bs_pred_text = "🟠 Big" if bs_pred == "Big" else "🔵 Small"
-        text += f"📏 *B/S Pred:* *{bs_pred_text}* | 🎯 L{bs_level}\n"
-        text += f"🔢 *Number Pred:* *{num_pred}* | 🎯 L{num_level}\n\n" 
+        text += f"📏 *B/S Pred:* *{bs_pred_text}*  | 🎯 L{bs_level}\n"
+        text += f"🔢 *Num Pred:* *{num_pred}*  | 🎯 L{num_level}\n\n"
+        text += f"💡 _Bet according to your level._"
         
     send_telegram_message_direct(target_chat_id, text)
 
@@ -190,7 +188,6 @@ def process_strategy(state, records):
     if not (latest_number_str.isdigit() and latest_issue.isdigit()): return False
     latest_bs = "Big" if int(latest_number_str) >= 5 else "Small"
 
-    # 🚀 मेमरीमध्ये रेकॉर्ड्स अत्यंत वेगाने सेव्ह करणे
     existing_issues = {x["issue"] for x in state["full_history"]}
     for rec in records:
         iss = str(rec.get("issueNumber") or rec.get("issue") or "")
@@ -205,14 +202,12 @@ def process_strategy(state, records):
             existing_issues.add(iss)
                 
     state["full_history"].sort(key=lambda x: int(x["issue"]), reverse=True)
-    state["full_history"] = state["full_history"][:60] # मेमरीमध्ये ६० राऊंड्स सुरक्षित राहतील
+    state["full_history"] = state["full_history"][:60]
 
-    # जेव्हा प्रोग्राम पहिल्यांदा सुरू होतो
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
         next_issue_int = int(latest_issue) + 1
         
-        # 🚀 B/S आणि Number System (अचूक 20th round logic)
         target_issue_str = str(next_issue_int - 20) 
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         
@@ -230,7 +225,6 @@ def process_strategy(state, records):
             send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["num_pred"], state["bs_level"], state["num_level"])
         return True
 
-    # जेव्हा नवीन राऊंड येतो
     if state["last_processed_issue"] != latest_issue:
         if int(latest_issue) <= int(state["last_processed_issue"]): return False  
 
@@ -239,44 +233,34 @@ def process_strategy(state, records):
         if state["bs_pred"] != "WAIT" and state["num_pred"] != "WAIT":
             state["stats"]["total_trades"] += 1
             
-            # --- B/S Win/Fail Logic ---
             bs_win = (state["bs_pred"] == latest_bs)
-            bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
-
-            # 🚀 --- Number Win/Fail Logic (दोन पैकी एक नंबर आला किंवा व्हायलेट आला तरी Win) ---
             num_win = str(latest_number_str) in state["num_pred"]
             
-            # ✅/❌ चिन्हे सेट करणे
-            bs_mark = "✅" if bs_win else "❌"
-            num_mark = "✅" if num_win else "❌" 
+            bs_mark = "✅ WIN" if bs_win else "❌ FAIL"
+            num_mark = "✅ WIN" if num_win else "❌ FAIL" 
             
-            # मागील राऊंडचा निकाल
             prev_res_text = (
-                f"📏 B/S: *{latest_bs}* {bs_mark}\n"
-                f"🔢 Num: *{latest_number_str}* {num_mark}"
+                f"🎯 Result: *{latest_number_str}* ({latest_bs})\n"
+                f"🔹 B/S: {bs_mark}\n"
+                f"🔸 Num: {num_mark}"
             )
             
             current_bs_level = state["bs_level"]
             current_num_level = state["num_level"]
             
-            # B/S Level Update
             if bs_win:
                 state["stats"]["bs_win"] += 1
                 state["bs_level"] = 1 
-                bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
-                prev_res_text += f"\n\n🔥🎉 *CONGRATS! B/S WIN!* 🎉🔥"
+                bs_res_status = f"{state['bs_pred']} ✅ WIN"
             else:
                 state["stats"]["bs_fail"] += 1
                 state["bs_level"] += 1
-                bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
+                bs_res_status = f"{state['bs_pred']} ❌ FAIL"
 
-            # 🚀 Number Level Update
             if num_win:
                 state["stats"]["num_win"] += 1
                 state["num_level"] = 1 
                 num_res_status = f"{state['num_pred']} ✅ WIN"
-                if not bs_win: prev_res_text += f"\n"
-                prev_res_text += f"\n🔢🎉 *CONGRATS! NUMBER WIN!* 🎉🔢"
             else:
                 state["stats"]["num_fail"] += 1
                 state["num_level"] += 1
@@ -294,10 +278,8 @@ def process_strategy(state, records):
             })
             if len(state["history"]) > 4: state["history"].pop(0)
 
-        # 🚀 STRATEGY LOGIC (पुढील राऊंडसाठी)
         next_issue_int = int(latest_issue) + 1
         
-        # 🚀 B/S आणि Number System (अचूक 20th round logic)
         target_issue_str = str(next_issue_int - 20)
         target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
         
@@ -346,7 +328,6 @@ def render_game_panel(state):
     panel_text += f"📊 [bold]B/S Stats  - W:[/] [green]{state['stats']['bs_win']}[/] | [bold]F:[/] [red]{state['stats']['bs_fail']}[/]\n"
     panel_text += f"🔢 [bold]Num Stats  - W:[/] [green]{state['stats']['num_win']}[/] | [bold]F:[/] [red]{state['stats']['num_fail']}[/]\n" 
     
-    # Table updated to show ONLY B/S and Number Details
     hist_table = Table(show_header=True, width=72)
     hist_table.add_column("Iss", justify="center")
     hist_table.add_column("B/S(L)", justify="center")
@@ -371,7 +352,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_1m = render_game_panel(state_1m)
     return Group(
-        Align.center("[bold yellow]🚀 1 MINUTE BOT (B/S & Num: 20th Round Exact Pairs)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 1 MINUTE BOT (Single Output Message)[/bold yellow]\n"),
         Align.center(p_1m)
     )
 

@@ -15,13 +15,13 @@ TELEGRAM_TOKEN = "8577275461:AAF8lWPac3WCgbHp8XPvU_lO289oHcMdOE8"
 TARGET_GROUP_ID = "-5202202128"  # <--- ३० सेकंदाच्या चॅनेल/ग्रुपचा आयडी
 
 # 🔐 सिक्रेट पासवर्ड
-PASS_30S = "11111"   # ३० सेकंदाच्या गेमसाठी
+PASS_30S = "11111"   
 # ----------------------------------------
 
-# ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session तयार करणे
+# ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session
 api_session = requests.Session()
 
-# 🚀 नवीन Number Prediction Logic
+# 🚀 Number Prediction Logic (Immediate Previous Result आधारित)
 def get_number_prediction(prev_num_str, r20_num_str):
     # १) जर २० व्या राऊंडला Violet (0 किंवा 5) आला असेल -> "0, 5"
     if r20_num_str and str(r20_num_str).isdigit():
@@ -29,21 +29,21 @@ def get_number_prediction(prev_num_str, r20_num_str):
         if r20_num in [0, 5]:
             return "0, 5"
 
-    # २) अन्यथा लगेचच्या मागील (Prev - 1st) राऊंडचा निकाल बघणे
+    # २) अन्यथा थेट लगेचच्या मागील (Immediate Previous) राऊंडचा नंबर बघणे
     if not prev_num_str or not str(prev_num_str).isdigit():
         return "WAIT"
 
     prev_num = int(prev_num_str)
 
-    if prev_num in [1, 3]:       # Small & Green -> "1, 3"
+    if prev_num in [1, 3]:       # Small & Green 
         return "1, 3"
-    elif prev_num in [2, 4]:     # Small & Red -> "2, 4"
+    elif prev_num in [2, 4]:     # Small & Red 
         return "2, 4"
-    elif prev_num in [6, 8]:     # Big & Red -> "6, 8"
+    elif prev_num in [6, 8]:     # Big & Red (उदा. 332 ला 6 किंवा 8 असल्यास 334 साठी "6, 8")
         return "6, 8"
-    elif prev_num in [7, 9]:     # Big & Green -> "7, 9"
+    elif prev_num in [7, 9]:     # Big & Green 
         return "7, 9"
-    elif prev_num in [0, 5]:     # मागील राऊंडला व्हायलेट असल्यास "0, 5"
+    elif prev_num in [0, 5]:     # Violet
         return "0, 5"
 
     return "WAIT"
@@ -53,6 +53,7 @@ def create_state(name, interval):
         "name": name,
         "interval": interval,
         "last_processed_issue": None,
+        "target_issue": "WAIT",
         
         "bs_pred": "WAIT", 
         "num_pred": "WAIT",
@@ -62,6 +63,7 @@ def create_state(name, interval):
         
         "full_history": [], 
         "history": [],
+        "pending_preds": {}, # टार्गेट राऊंडनुसार प्रेडिक्शन ट्रॅक करण्यासाठी
         "stats": {"bs_win": 0, "bs_fail": 0, "num_win": 0, "num_fail": 0, "total_trades": 0},
         "is_running": False,       
         "active_chat_id": None,   
@@ -98,7 +100,7 @@ def telegram_listener():
                         if len(parts) == 2 and parts[1] == PASS_30S:
                             state_30s["is_running"] = True
                             state_30s["active_chat_id"] = chat_id
-                            send_telegram_message_direct(chat_id, f"✅ *[30S Strategy] Activated! Live Prediction is ON.*")
+                            send_telegram_message_direct(chat_id, f"✅ *[30S Strategy] Activated! Live Prediction (Latest + 2) is ON.*")
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                                 
@@ -125,7 +127,7 @@ def send_telegram_signal(state, issue, bs_pred, num_pred, bs_level, num_level, p
         text += f"{prev_res_text}\n"
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
         
-    text += f"🎟️ *New Issue:* {issue}\n\n"
+    text += f"🎟️ *New Target Issue:* {issue}\n\n"
     
     if bs_pred == "WAIT" or num_pred == "WAIT":
         text += f"⏳ *Building History Data...*\n_Waiting for enough data to sync..._\n"
@@ -175,6 +177,7 @@ def process_strategy(state, records):
     state["live_records"] = records[:5]
     
     latest_item = records[0]
+    # आत्ताच पूर्ण झालेला निकाल (उदा. ३३२)
     latest_issue = str(latest_item.get("issueNumber") or latest_item.get("issue") or "-")
     latest_number_str = str(latest_item.get("number") or latest_item.get("drawNumber") or "-")
     
@@ -198,123 +201,136 @@ def process_strategy(state, records):
     state["full_history"].sort(key=lambda x: int(x["issue"]), reverse=True)
     state["full_history"] = state["full_history"][:60]
 
+    # जर बॉट पहिल्यांदा चालू झाला असेल
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
-        next_issue_int = int(latest_issue) + 1
         
-        # २० वा राऊंड (B/S आणि Violet साठी)
-        target_issue_str = str(next_issue_int - 20) 
-        target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
+        # प्रेडिक्शन टार्गेट = Latest Issue + 2 (उदा. 332 + 2 = 334)
+        target_issue_int = int(latest_issue) + 2
+        target_issue_str = str(target_issue_int)
         
-        # मागील लगेचचा राऊंड (Prev - 1st)
-        prev_issue_str = str(latest_issue)
-        prev_record = next((x for x in state["full_history"] if x["issue"] == prev_issue_str), None)
+        target_issue_for_bs = str(target_issue_int - 20)
+        target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_for_bs), None)
         
         r20_num = None
         if target_record:
-            state["bs_pred"] = target_record["bs"]
+            bs_pred = target_record["bs"]
             r20_num = target_record["num"]
         elif len(state["full_history"]) >= 20:
-            state["bs_pred"] = state["full_history"][19]["bs"]
+            bs_pred = state["full_history"][19]["bs"]
             r20_num = state["full_history"][19]["num"]
         else:
-            state["bs_pred"] = "WAIT"
+            bs_pred = "WAIT"
 
-        prev_num = prev_record["num"] if prev_record else (state["full_history"][0]["num"] if state["full_history"] else None)
-        state["num_pred"] = get_number_prediction(prev_num, r20_num)
+        num_pred = get_number_prediction(latest_number_str, r20_num)
+        
+        state["bs_pred"] = bs_pred
+        state["num_pred"] = num_pred
+        state["target_issue"] = target_issue_str
+        
+        state["pending_preds"][target_issue_str] = {
+            "bs_pred": bs_pred,
+            "num_pred": num_pred,
+            "bs_level": state["bs_level"],
+            "num_level": state["num_level"]
+        }
         
         if state["is_running"]:
-            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["num_pred"], state["bs_level"], state["num_level"])
+            send_telegram_signal(state, target_issue_str, state["bs_pred"], state["num_pred"], state["bs_level"], state["num_level"])
         return True
 
+    # जेव्हा नवीन राऊंडचा निकाल येईल
     if state["last_processed_issue"] != latest_issue:
         if int(latest_issue) <= int(state["last_processed_issue"]): return False  
 
         prev_res_text = ""
         
-        if state["bs_pred"] != "WAIT" and state["num_pred"] != "WAIT":
+        # जर नुकत्याच आलेल्या latest_issue वर आपले प्रेडिक्शन जमेत असेल तर विन/फेल तपासा
+        if latest_issue in state["pending_preds"]:
+            pred_data = state["pending_preds"][latest_issue]
             state["stats"]["total_trades"] += 1
             
-            # --- B/S Win/Fail Logic ---
-            bs_win = (state["bs_pred"] == latest_bs)
-            bs_emoji = "🟠" if state["bs_pred"] == "Big" else "🔵"
+            bs_win = (pred_data["bs_pred"] == latest_bs)
+            bs_emoji = "🟠" if pred_data["bs_pred"] == "Big" else "🔵"
 
-            # --- Number Win/Fail Logic ---
-            num_win = str(latest_number_str) in state["num_pred"] 
+            num_win = str(latest_number_str) in pred_data["num_pred"] 
             
-            # ✅/❌ चिन्हे
             bs_mark = "✅" if bs_win else "❌"
             num_mark = "✅" if num_win else "❌" 
             
-            # मागील राऊंडचा निकाल
             prev_res_text = (
                 f"📏 B/S: *{latest_bs}* {bs_mark}\n"
                 f"🔢 Num: *{latest_number_str}* {num_mark}"
             )
             
-            current_bs_level = state["bs_level"]
-            current_num_level = state["num_level"] 
+            current_bs_level = pred_data["bs_level"]
+            current_num_level = pred_data["num_level"] 
             
-            # B/S Level Update
             if bs_win:
                 state["stats"]["bs_win"] += 1
                 state["bs_level"] = 1
-                bs_res_status = f"{bs_emoji} {state['bs_pred']} ✅ WIN"
                 prev_res_text += f"\n\n🔥🎉 *CONGRATS! B/S WIN!* 🎉🔥"
             else:
                 state["stats"]["bs_fail"] += 1
                 state["bs_level"] += 1
-                bs_res_status = f"{bs_emoji} {state['bs_pred']} ❌ FAIL"
                 
-            # Number Level Update
             if num_win:
                 state["stats"]["num_win"] += 1
                 state["num_level"] = 1
-                num_res_status = f"{state['num_pred']} ✅ WIN"
                 if not bs_win: prev_res_text += f"\n"
                 prev_res_text += f"\n🔢🎉 *CONGRATS! NUMBER WIN!* 🎉🔢"
             else:
                 state["stats"]["num_fail"] += 1
                 state["num_level"] += 1
-                num_res_status = f"{state['num_pred']} ❌ FAIL"
                     
             state["history"].append({
                 "trade": state["stats"]["total_trades"], 
                 "issue": latest_issue[-4:],
                 "bs_level": f"L{current_bs_level}", 
-                "bs_pred": state["bs_pred"],
-                "bs_res": "[green]✅ WIN[/]" if "WIN" in bs_res_status else "[red]❌ FAIL[/]",
+                "bs_pred": pred_data["bs_pred"],
+                "bs_res": "[green]✅ WIN[/]" if bs_win else "[red]❌ FAIL[/]",
                 "num_level": f"L{current_num_level}",
-                "num_pred": state["num_pred"],
-                "num_res": "[green]✅ WIN[/]" if "WIN" in num_res_status else "[red]❌ FAIL[/]"
+                "num_pred": pred_data["num_pred"],
+                "num_res": "[green]✅ WIN[/]" if num_win else "[red]❌ FAIL[/]"
             })
             if len(state["history"]) > 4: state["history"].pop(0)
+            
+            del state["pending_preds"][latest_issue]
 
-        next_issue_int = int(latest_issue) + 1
+        # --- नवीन प्रेडिक्शन जनरेट करणे (Latest Issue + 2) ---
+        # उदा. जर latest_issue = 332 असेल, तर पुढील टार्गेट = 334
+        next_target_issue_int = int(latest_issue) + 2
+        next_target_issue_str = str(next_target_issue_int)
         
-        # २० वा राऊंड (B/S आणि Violet साठी)
-        target_issue_str = str(next_issue_int - 20)
-        target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
-        
-        # मागील लगेचचा राऊंड (Prev - 1st)
-        prev_issue_str = str(latest_issue)
-        prev_record = next((x for x in state["full_history"] if x["issue"] == prev_issue_str), None)
+        bs_target_issue_for_bs = str(next_target_issue_int - 20)
+        target_record = next((x for x in state["full_history"] if x["issue"] == bs_target_issue_for_bs), None)
         
         r20_num = None
         if target_record:
-            state["bs_pred"] = target_record["bs"]
+            bs_pred = target_record["bs"]
             r20_num = target_record["num"]
         elif len(state["full_history"]) >= 20:
-            state["bs_pred"] = state["full_history"][19]["bs"]
+            bs_pred = state["full_history"][19]["bs"]
             r20_num = state["full_history"][19]["num"]
         else:
-            state["bs_pred"] = "WAIT"
+            bs_pred = "WAIT"
 
-        prev_num = prev_record["num"] if prev_record else (state["full_history"][0]["num"] if state["full_history"] else None)
-        state["num_pred"] = get_number_prediction(prev_num, r20_num)
+        # थेट latest_number_str (उदा. ३३२ चा नंबर) वापरून पुढील टार्गेट (उदा. ३३४) चे नंबर प्रेडिक्शन काढणे
+        num_pred = get_number_prediction(latest_number_str, r20_num)
+
+        state["bs_pred"] = bs_pred
+        state["num_pred"] = num_pred
+        state["target_issue"] = next_target_issue_str
+
+        state["pending_preds"][next_target_issue_str] = {
+            "bs_pred": bs_pred,
+            "num_pred": num_pred,
+            "bs_level": state["bs_level"],
+            "num_level": state["num_level"]
+        }
 
         if state["is_running"]:
-            send_telegram_signal(state, str(next_issue_int), state["bs_pred"], state["num_pred"], state["bs_level"], state["num_level"], prev_res_text)
+            send_telegram_signal(state, next_target_issue_str, state["bs_pred"], state["num_pred"], state["bs_level"], state["num_level"], prev_res_text)
 
         state["last_processed_issue"] = latest_issue
         return True
@@ -329,7 +345,7 @@ def worker_30s():
         time.sleep(1)
 
 def render_game_panel(state):
-    next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
+    target_iss = state.get("target_issue", "Wait")
     
     if state["bs_pred"] == "WAIT" or state["num_pred"] == "WAIT":
         ui_text = "[yellow]WAIT (Syncing...)[/]"
@@ -341,7 +357,7 @@ def render_game_panel(state):
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
-    panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
+    panel_text = f"🎯 [bold white]Target Issue: {target_iss}[/]\n"
     panel_text += f"📏 [bold]B/S Pred:[/] {ui_text}\n"
     panel_text += f"🔢 [bold]Num Pred:[/] {num_text}\n"
     panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
@@ -372,7 +388,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S SUPERFAST BOT (Updated Strategy)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S SUPERFAST BOT (Latest + 2 Prediction Fixed)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

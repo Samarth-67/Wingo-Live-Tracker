@@ -2,7 +2,6 @@ import os
 import time
 import threading
 import requests
-from rich.table import Table
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.align import Align
@@ -21,14 +20,6 @@ PASS_1M = "22222"   # १ मिनिटाच्या गेमसाठी
 # ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session
 api_session = requests.Session()
 
-# 💰 Betting Table (Level: Amount)
-BET_TABLE = {
-    1: 100,
-    2: 200,
-    3: 500,
-    4: 1100
-}
-
 def create_state(name, interval):
     return {
         "name": name,
@@ -41,9 +32,6 @@ def create_state(name, interval):
         "s1_active": False,
         "s1_base_pred": None,
         "s1_count": 0,
-        
-        # Virtual Wallet (₹20,000)
-        "virtual_balance": 20000,
         
         "full_history": [], 
         "history": [],
@@ -115,15 +103,14 @@ def telegram_listener():
                             state_1m["stats"]["s1_win"] = 0
                             state_1m["stats"]["s1_fail"] = 0
                             
-                            state_1m["virtual_balance"] = 20000
-                            send_telegram_message_direct(chat_id, "🔄 *1M Bot Reset Successfully!*\nLevels are back to L1 and Wallet is ₹20,000.")
+                            send_telegram_message_direct(chat_id, "🔄 *1M Bot Reset Successfully!*\nLevels are back to L1.")
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
         except Exception:
             pass
         time.sleep(3)
 
-# 🚀 मेसेज पाठवण्याचे लॉजिक
+# 🚀 मेसेज पाठवण्याचे लॉजिक (विना बेटिंग अमाउंट)
 def send_telegram_signal(state, issue, prev_res_text=None):
     target_chat_id = TARGET_GROUP_ID
     if not target_chat_id: return
@@ -135,20 +122,18 @@ def send_telegram_signal(state, issue, prev_res_text=None):
     if prev_res_text:
         text += f"📊 *मागील निकाल (Previous Result):*\n"
         text += f"{prev_res_text}\n"
-        text += f"💰 *Virtual Balance:* ₹{state['virtual_balance']}\n"
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
         
     text += f"🎟️ *Next Issue:* `{issue}`\n\n"
     
-    # Strategy 1 Text
+    # Strategy 1 Text (फक्त लेव्हल दिसेल)
     if not state["s1_active"] or state["s1_pred"] == "WAIT":
         text += f"📏 *Strategy 1 (3-Circle):* ⏳ Waiting for 3 B/S...\n\n"
     else:
         s1_icon = "🟠 Big" if state["s1_pred"] == "Big" else "🔵 Small"
-        s1_bet = BET_TABLE.get(min(state["s1_level"], 4), 1100)
-        text += f"📏 *Strategy 1 (3-Circle):* *{s1_icon}* | 🎯 L{state['s1_level']} (₹{s1_bet})\n\n"
+        text += f"📏 *Strategy 1 (3-Circle):* *{s1_icon}* | 🎯 L{state['s1_level']}\n\n"
         
-    text += f"💡 _Auto Virtual Betting is ON._"
+    text += f"💡 _Auto Prediction Bot is ON._"
         
     send_telegram_message_direct(target_chat_id, text)
 
@@ -258,27 +243,19 @@ def process_strategy(state, records):
         # --- Evaluate Strategy 1 ---
         if state["s1_active"] and state["s1_pred"] != "WAIT":
             state["stats"]["total_trades"] += 1
-            s1_bet = BET_TABLE.get(min(state["s1_level"], 4), 1100)
             if state["s1_pred"] == latest_bs:
                 state["stats"]["s1_win"] += 1
-                state["virtual_balance"] += s1_bet
-                state["s1_level"] = 1 # Reset level on Win, stays active continuously
+                state["s1_level"] = 1 # Reset level to 1 ONLY on WIN
                 s1_res_status = f"{state['s1_pred']} ✅ WIN"
-                prev_res_text += f"🔹 S1 (3-Circle): ✅ WIN (+₹{s1_bet})\n"
+                prev_res_text += f"🔹 S1 (3-Circle): ✅ WIN\n"
             else:
                 state["stats"]["s1_fail"] += 1
-                state["virtual_balance"] -= s1_bet
-                if state["s1_level"] < 4:
-                    state["s1_level"] += 1
-                else:
-                    state["s1_level"] = 1
+                state["s1_level"] += 1 # Unlimited progression on FAIL
                 s1_res_status = f"{state['s1_pred']} ❌ FAIL"
-                prev_res_text += f"🔹 S1 (3-Circle): ❌ FAIL (-₹{s1_bet})\n"
+                prev_res_text += f"🔹 S1 (3-Circle): ❌ FAIL\n"
             
-            # Increment count for the 3-circle pattern sequence
             state["s1_count"] += 1
         
-        # Add to recent UI history
         state["history"].append({
             "issue": latest_issue[-4:],
             "s1_pred": state["s1_pred"] if state["s1_active"] else "WAIT",
@@ -322,28 +299,10 @@ def render_game_panel(state):
 
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
     panel_text += f"📏 [bold]Strategy 1 (3-Circle):[/] {s1_ui_text}\n"
-    panel_text += f"🕒 [bold]Status:[/] {timer_status}\n"
-    panel_text += f"💰 [bold]Virtual Balance:[/] ₹{state['virtual_balance']}\n\n"
-    panel_text += f"📊 [bold]S1 Stats - W:[/] [green]{state['stats']['s1_win']}[/] | [bold]F:[/] [red]{state['stats']['s1_fail']}[/]\n"
+    panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
+    panel_text += f"📊 [bold]S1 Stats - W:[/] [green]{state['stats']['s1_win']}[/] | [bold]F:[/] [red]{state['stats']['s1_fail']}[/]"
 
-    hist_table = Table(show_header=True, width=72)
-    hist_table.add_column("Iss", justify="center")
-    hist_table.add_column("S1 (L)", justify="center")
-    hist_table.add_column("S1 Res", justify="center")
-
-    if not state["history"]:
-        hist_table.add_row("-", "-", "-")
-    else:
-        for h in state["history"]: 
-            s1_p = f"{h['s1_pred'][0]}({h['s1_level']})" if h['s1_pred'] != "WAIT" else "-"
-
-            hist_table.add_row(
-                str(h["issue"]), 
-                s1_p, 
-                str(h["s1_res"])[0:13]
-            )
-
-    return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']}[/]", border_style="cyan", width=78)
+    return Panel(Align.center(panel_text), title=f"🤖 [bold cyan]{state['name']}[/]", border_style="cyan", width=78)
 
 def create_master_ui():
     p_1m = render_game_panel(state_1m)

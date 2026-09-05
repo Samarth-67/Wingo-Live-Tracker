@@ -35,13 +35,12 @@ def create_state(name, interval):
         "s2_pred": "WAIT",
         "s2_level": 1,
         "s2_active": False,
-        "s2_rounds_left": 0,
         
         "full_history": [], 
         "history": [],
         "stats": {"s1_win": 0, "s1_fail": 0, "s2_win": 0, "s2_fail": 0, "total_trades": 0},
-        "is_running": False,       
-        "active_chat_id": None,   
+        "is_running": False,        
+        "active_chat_id": None,    
         "live_records": []
     }
 
@@ -112,9 +111,9 @@ def send_telegram_signal(state, issue, prev_res_text=None):
         s1_icon = "🟠 Big" if state["s1_pred"] == "Big" else "🔵 Small"
         text += f"📏 *Strategy 1 (20th):* *{s1_icon}* | 🎯 L{state['s1_level']}\n"
 
-    # Strategy 2 Text
-    if state["s2_pred"] == "WAIT":
-        text += f"📐 *Strategy 2 (3-Opp):* ⏳ Waiting for 3 B/S...\n\n"
+    # Strategy 2 Text (Stop Trading message when inactive)
+    if not state["s2_active"] or state["s2_pred"] == "WAIT":
+        text += f"📐 *Strategy 2 (3-Opp):* 🛑 *Stop Trading* (Waiting for 3 B/S)...\n\n"
     else:
         s2_icon = "🟠 Big" if state["s2_pred"] == "Big" else "🔵 Small"
         text += f"📐 *Strategy 2 (3-Opp):* *{s2_icon}* | 🎯 L{state['s2_level']}\n\n"
@@ -171,17 +170,14 @@ def update_predictions(state, next_issue_int):
 
     # --- Strategy 2 Logic (Wait for 3 Consecutive) ---
     if not state["s2_active"] and len(state["full_history"]) >= 3:
-        # Check last 3 records (index 0 is the most recent)
         last_3_bs = [x["bs"] for x in state["full_history"][:3]]
         
         if last_3_bs == ["Big", "Big", "Big"]:
             state["s2_active"] = True
-            state["s2_rounds_left"] = 3
             state["s2_pred"] = "Small"
             state["s2_level"] = 1
         elif last_3_bs == ["Small", "Small", "Small"]:
             state["s2_active"] = True
-            state["s2_rounds_left"] = 3
             state["s2_pred"] = "Big"
             state["s2_level"] = 1
         else:
@@ -252,24 +248,17 @@ def process_strategy(state, records):
         if state["s2_active"] and state["s2_pred"] != "WAIT":
             if state["s2_pred"] == latest_bs:
                 state["stats"]["s2_win"] += 1
-                state["s2_active"] = False # Reset on Win
+                state["s2_active"] = False # WIN झाल्यावरच लेव्हल १ वर सेट होईल आणि नवीन पॅटर्नची वाट पाहिल
                 state["s2_level"] = 1
                 state["s2_pred"] = "WAIT"
                 s2_res_status = f"✅ WIN"
-                prev_res_text += f"🔸 S2 (3-Opp): ✅ WIN\n"
+                prev_res_text += f"🔸 S2 (3-Opp): ✅ WIN (Reset to L1)\n"
             else:
                 state["stats"]["s2_fail"] += 1
-                state["s2_level"] += 1
-                state["s2_rounds_left"] -= 1
+                state["s2_level"] += 1  # FAIL झाल्यास लेव्हल वाढत जाईल (L3 नंतर L4, L5, L6...)
                 s2_res_status = f"❌ FAIL"
-                prev_res_text += f"🔸 S2 (3-Opp): ❌ FAIL\n"
+                prev_res_text += f"🔸 S2 (3-Opp): ❌ FAIL (Moving to L{state['s2_level']})\n"
                 
-                # If 3 rounds completed and still failed, reset
-                if state["s2_rounds_left"] <= 0:
-                    state["s2_active"] = False
-                    state["s2_level"] = 1
-                    state["s2_pred"] = "WAIT"
-                    
         # Add to recent UI history
         state["history"].append({
             "issue": latest_issue[-4:],
@@ -316,9 +305,9 @@ def render_game_panel(state):
         s1_color = "dark_orange" if state["s1_pred"] == "Big" else "bright_blue"
         s1_ui_text = f"[{s1_color}]{state['s1_pred']}[/] (L{state['s1_level']})"
         
-    # Strat 2 UI
-    if state["s2_pred"] == "WAIT":
-        s2_ui_text = "[yellow]WAIT (Waiting for 3 B/S)[/]"
+    # Strat 2 UI (Stop Trading message when inactive)
+    if not state["s2_active"] or state["s2_pred"] == "WAIT":
+        s2_ui_text = "[red]🛑 Stop Trading[/] (Waiting for 3 B/S)"
     else:
         s2_color = "dark_orange" if state["s2_pred"] == "Big" else "bright_blue"
         s2_ui_text = f"[{s2_color}]{state['s2_pred']}[/] (L{state['s2_level']})"

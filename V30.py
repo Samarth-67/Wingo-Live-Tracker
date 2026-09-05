@@ -15,7 +15,7 @@ TELEGRAM_TOKEN = "8577275461:AAF8lWPac3WCgbHp8XPvU_lO289oHcMdOE8"
 TARGET_GROUP_ID = "-5202202128"  # <--- ३० सेकंदाच्या चॅनेल/ग्रुपचा आयडी
 
 # 🔐 सिक्रेट पासवर्ड
-PASS_30S = "11111"   
+PASS_30S = "11111"    
 # ----------------------------------------
 
 # ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session
@@ -35,7 +35,7 @@ def create_state(name, interval):
         "interval": interval,
         "last_processed_issue": None,
         
-        # Strategy (2 Consecutive Opposite)
+        # Strategy (3 Consecutive Opposite)
         "pred": "WAIT",
         "level": 1,
         "active": False,
@@ -48,7 +48,7 @@ def create_state(name, interval):
         "stats": {"win": 0, "fail": 0, "total_trades": 0},
         
         "is_running": False,        
-        "active_chat_id": None,   
+        "active_chat_id": None,    
         "live_records": [],
         "last_result_text": "Initializing..."
     }
@@ -87,7 +87,7 @@ def telegram_listener():
                             if pwd == PASS_30S:
                                 state_30s["is_running"] = True
                                 state_30s["active_chat_id"] = chat_id
-                                send_telegram_message_direct(chat_id, f"✅ *[{state_30s['name']} (2-Opp) Strategy] Activated! Live Prediction is ON.*")
+                                send_telegram_message_direct(chat_id, f"✅ *[{state_30s['name']} (3-Opp) Strategy] Activated! Live Prediction is ON.*")
                             else:
                                 send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                                 
@@ -98,7 +98,7 @@ def telegram_listener():
                             pwd = parts[1]
                             if pwd == PASS_30S:
                                 state_30s["is_running"] = False
-                                send_telegram_message_direct(chat_id, f"🛑 *[{state_30s['name']} (2-Opp) Strategy] Stopped Successfully!*")
+                                send_telegram_message_direct(chat_id, f"🛑 *[{state_30s['name']} (3-Opp) Strategy] Stopped Successfully!*")
                             else:
                                 send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                     
@@ -127,7 +127,7 @@ def send_telegram_signal(state, issue, prev_res_text=None):
 
     game_name = state["name"]
     
-    text = f"🚀 *{game_name} (2-Opp) Auto Bot* 🚀\n\n"
+    text = f"🚀 *{game_name} (3-Opp) Auto Bot* 🚀\n\n"
     
     if prev_res_text:
         text += f"🔄 *Last Trade Result:*\n"
@@ -137,9 +137,9 @@ def send_telegram_signal(state, issue, prev_res_text=None):
         
     text += f"🎟️ *Next Issue:* `{issue}`\n\n"
     
-    # Strategy Text
-    if state["pred"] == "WAIT":
-        text += f"📐 *Prediction:* ⏳ Waiting for 2 B/S...\n\n"
+    # Strategy Text (3-Opp)
+    if not state["active"] or state["pred"] == "WAIT":
+        text += f"📐 *Prediction:* 🛑 *Stop Trading* (Waiting for 3 B/S)...\n\n"
     else:
         icon = "🟠 Big" if state["pred"] == "Big" else "🔵 Small"
         bet_amt = BET_TABLE.get(state["level"], 0)
@@ -187,15 +187,15 @@ def fetch_history_records(url):
     return all_records
 
 def update_predictions(state, next_issue_int):
-    # --- Strategy Logic (Wait for 2 Consecutive) ---
-    if not state["active"] and len(state["full_history"]) >= 2:
-        last_2_bs = [x["bs"] for x in state["full_history"][:2]]
+    # --- Strategy Logic (Wait for 3 Consecutive Opposite) ---
+    if not state["active"] and len(state["full_history"]) >= 3:
+        last_3_bs = [x["bs"] for x in state["full_history"][:3]]
         
-        if last_2_bs == ["Big", "Big"]:
+        if last_3_bs == ["Big", "Big", "Big"]:
             state["active"] = True
             state["pred"] = "Small"
             state["level"] = 1
-        elif last_2_bs == ["Small", "Small"]:
+        elif last_3_bs == ["Small", "Small", "Small"]:
             state["active"] = True
             state["pred"] = "Big"
             state["level"] = 1
@@ -314,8 +314,8 @@ def worker_30s():
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
     
-    if state["pred"] == "WAIT":
-        ui_text = "[yellow]WAIT (Waiting for 2 B/S)[/]"
+    if not state["active"] or state["pred"] == "WAIT":
+        ui_text = "[red]🛑 Stop Trading[/] (Waiting for 3 B/S)"
         bet_ui = "₹0"
     else:
         color = "dark_orange" if state["pred"] == "Big" else "bright_blue"
@@ -352,7 +352,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30 SECONDS VIRTUAL BOT (2-Opp)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30 SECONDS VIRTUAL BOT (3-Opp)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

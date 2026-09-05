@@ -42,10 +42,11 @@ def create_state(name, interval):
         "s1_base_pred": None,
         "s1_count": 0,
         
-        # Strategy 2 (3 Consecutive Opposite)
+        # Strategy 2 (3 Consecutive Opposite - Conditional with Swap)
         "s2_pred": "WAIT",
         "s2_level": 1,
         "s2_active": False,
+        "s2_target_count": 0,  # 3 लेव्हल्स मोजण्यासाठी (Added from 30s code)
         
         # Virtual Wallet (₹20,000)
         "virtual_balance": 20000,
@@ -116,13 +117,17 @@ def telegram_listener():
                             state_1m["s1_active"] = False
                             state_1m["s1_base_pred"] = None
                             state_1m["s1_count"] = 0
+                            
                             state_1m["s2_level"] = 1
                             state_1m["s2_pred"] = "WAIT"
                             state_1m["s2_active"] = False
+                            state_1m["s2_target_count"] = 0
+                            
                             state_1m["stats"]["s1_win"] = 0
                             state_1m["stats"]["s1_fail"] = 0
                             state_1m["stats"]["s2_win"] = 0
                             state_1m["stats"]["s2_fail"] = 0
+                            
                             state_1m["virtual_balance"] = 20000
                             send_telegram_message_direct(chat_id, "🔄 *1M Bot Reset Successfully!*\nLevels are back to L1 and Wallet is ₹20,000.")
                         else:
@@ -235,12 +240,16 @@ def update_predictions(state, next_issue_int):
             state["s2_active"] = True
             state["s2_pred"] = "Small"
             state["s2_level"] = 1
+            state["s2_target_count"] = 0 # काउंट रिसेट
         elif last_3_bs == ["Small", "Small", "Small"]:
             state["s2_active"] = True
             state["s2_pred"] = "Big"
             state["s2_level"] = 1
+            state["s2_target_count"] = 0 # काउंट रिसेट
         else:
             state["s2_pred"] = "WAIT"
+    elif not state["s2_active"]:
+        state["s2_pred"] = "WAIT"
 
 def process_strategy(state, records):
     if not records: 
@@ -319,17 +328,28 @@ def process_strategy(state, records):
                 state["s2_active"] = False 
                 state["s2_level"] = 1
                 state["s2_pred"] = "WAIT"
+                state["s2_target_count"] = 0
                 s2_res_status = f"✅ WIN"
                 prev_res_text += f"🔸 S2 (3-Opp): ✅ WIN (+₹{s2_bet}) (Reset to L1)\n"
             else:
                 state["stats"]["s2_fail"] += 1
                 state["virtual_balance"] -= s2_bet
+                state["s2_target_count"] += 1 # फेल काउंट वाढेल
+                
                 if state["s2_level"] < 4:
                     state["s2_level"] += 1  
-                else:
+                    
+                    # जर सलग ३ वेळा एकच सिग्नल फेल झाला, तर पुढच्या लेव्हलसाठी विरुद्ध (Opposite) सिग्नल देईल
+                    if state["s2_target_count"] >= 3:
+                        state["s2_pred"] = "Small" if state["s2_pred"] == "Big" else "Big"
+                        state["s2_target_count"] = 0 # नवीन सिग्नलसाठी काउंट रिसेट
+                        
+                else: # L4 फेल झाल्यावर थांबेल आणि नवीन 3 B/S ची वाट बघेल
                     state["s2_level"] = 1
                     state["s2_active"] = False
                     state["s2_pred"] = "WAIT"
+                    state["s2_target_count"] = 0
+                    
                 s2_res_status = f"❌ FAIL"
                 prev_res_text += f"🔸 S2 (3-Opp): ❌ FAIL (-₹{s2_bet}) (Moving to L{state['s2_level']})\n"
                 
@@ -368,47 +388,45 @@ def worker_1m():
 
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
-    
+
     # Strat 1 UI
     if not state["s1_active"] or state["s1_pred"] == "WAIT":
         s1_ui_text = "[yellow]WAIT (Waiting for 3 B/S)[/]"
     else:
         s1_color = "dark_orange" if state["s1_pred"] == "Big" else "bright_blue"
-        s1_bet = BET_TABLE.get(min(state["s1_level"], 4), 1100)
-        s1_ui_text = f"[{s1_color}]{state['s1_pred']}[/] (L{state['s1_level']} - ₹{s1_bet})"
-        
-    # Strat 2 UI (Stop Trading message when inactive)
+        s1_ui_text = f"[{s1_color}]{state['s1_pred']}[/] (L{state['s1_level']})"
+
+    # Strat 2 UI
     if not state["s2_active"] or state["s2_pred"] == "WAIT":
-        s2_ui_text = "[red]🛑 Stop Trading[/] (Waiting for 3 B/S)"
+        s2_ui_text = "[yellow]WAIT (Waiting for 3 B/S)[/]"
     else:
         s2_color = "dark_orange" if state["s2_pred"] == "Big" else "bright_blue"
-        s2_bet = BET_TABLE.get(min(state["s2_level"], 4), 1100)
-        s2_ui_text = f"[{s2_color}]{state['s2_pred']}[/] (L{state['s2_level']} - ₹{s2_bet})"
-        
+        s2_ui_text = f"[{s2_color}]{state['s2_pred']}[/] (L{state['s2_level']})"
+
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
-    
+
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
     panel_text += f"📏 [bold]Strategy 1 (3-Circle):[/] {s1_ui_text}\n"
     panel_text += f"📐 [bold]Strategy 2 (3-Opp):[/] {s2_ui_text}\n"
-    panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
-    panel_text += f"💰 [bold green]Virtual Balance:[/] [bold cyan]₹{state['virtual_balance']}[/]\n"
+    panel_text += f"🕒 [bold]Status:[/] {timer_status}\n"
+    panel_text += f"💰 [bold]Virtual Balance:[/] ₹{state['virtual_balance']}\n\n"
     panel_text += f"📊 [bold]S1 Stats - W:[/] [green]{state['stats']['s1_win']}[/] | [bold]F:[/] [red]{state['stats']['s1_fail']}[/]\n"
     panel_text += f"📊 [bold]S2 Stats - W:[/] [green]{state['stats']['s2_win']}[/] | [bold]F:[/] [red]{state['stats']['s2_fail']}[/]\n"
-    
+
     hist_table = Table(show_header=True, width=72)
     hist_table.add_column("Iss", justify="center")
     hist_table.add_column("S1 (L)", justify="center")
     hist_table.add_column("S1 Res", justify="center")
     hist_table.add_column("S2 (L)", justify="center")
     hist_table.add_column("S2 Res", justify="center")
-    
+
     if not state["history"]:
         hist_table.add_row("-", "-", "-", "-", "-")
     else:
         for h in state["history"]: 
             s1_p = f"{h['s1_pred'][0]}({h['s1_level']})" if h['s1_pred'] != "WAIT" else "-"
             s2_p = f"{h['s2_pred'][0]}({h['s2_level']})" if h['s2_pred'] != "WAIT" else "-"
-            
+
             hist_table.add_row(
                 str(h["issue"]), 
                 s1_p, 
@@ -416,20 +434,20 @@ def render_game_panel(state):
                 s2_p,
                 str(h["s2_res"])[0:13]
             )
-    
+
     return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']}[/]", border_style="cyan", width=78)
 
 def create_master_ui():
     p_1m = render_game_panel(state_1m)
     return Group(
-        Align.center("[bold yellow]🚀 1 MINUTE DUAL STRATEGY BOT (Virtual Wallet)[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 1M SUPERFAST DUAL STRATEGY BOT[/bold yellow]\n"),
         Align.center(p_1m)
     )
 
 if __name__ == "__main__":
     t_list = threading.Thread(target=telegram_listener, daemon=True)
     t_1m = threading.Thread(target=worker_1m, daemon=True)
-    
+
     t_list.start(); t_1m.start()
 
     with Live(create_master_ui(), console=console, refresh_per_second=4, screen=False) as live:

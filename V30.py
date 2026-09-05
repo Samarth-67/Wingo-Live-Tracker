@@ -31,7 +31,7 @@ def create_state(name, interval):
         "s1_pred": "WAIT",
         "s1_level": 1,
         
-        # Strategy 2 (3 Consecutive Opposite)
+        # Strategy 2 (2 Consecutive Opposite) - Updated
         "s2_pred": "WAIT",
         "s2_level": 1,
         "s2_active": False,
@@ -120,12 +120,12 @@ def send_telegram_signal(state, issue, prev_res_text=None):
         s1_icon = "🟠 Big" if state["s1_pred"] == "Big" else "🔵 Small"
         text += f"📏 *Strategy 1 (20th):* *{s1_icon}* | 🎯 L{state['s1_level']}\n"
 
-    # Strategy 2 Text
+    # Strategy 2 Text (Updated to 2-Opp)
     if state["s2_pred"] == "WAIT":
-        text += f"📐 *Strategy 2 (3-Opp):* ⏳ Waiting for 3 B/S...\n\n"
+        text += f"📐 *Strategy 2 (2-Opp):* ⏳ Waiting for 2 B/S...\n\n"
     else:
         s2_icon = "🟠 Big" if state["s2_pred"] == "Big" else "🔵 Small"
-        text += f"📐 *Strategy 2 (3-Opp):* *{s2_icon}* | 🎯 L{state['s2_level']}\n\n"
+        text += f"📐 *Strategy 2 (2-Opp):* *{s2_icon}* | 🎯 L{state['s2_level']}\n\n"
         
     text += f"💡 _Bet according to your level._"
         
@@ -178,17 +178,17 @@ def update_predictions(state, next_issue_int):
     else:
         state["s1_pred"] = "WAIT"
 
-    # --- Strategy 2 Logic (Wait for 3 Consecutive) ---
-    if not state["s2_active"] and len(state["full_history"]) >= 3:
-        # Check last 3 records (index 0 is the most recent)
-        last_3_bs = [x["bs"] for x in state["full_history"][:3]]
+    # --- Strategy 2 Logic (Wait for 2 Consecutive) - UPDATED ---
+    if not state["s2_active"] and len(state["full_history"]) >= 2:
+        # Check last 2 records (index 0 is the most recent)
+        last_2_bs = [x["bs"] for x in state["full_history"][:2]]
         
-        if last_3_bs == ["Big", "Big", "Big"]:
+        if last_2_bs == ["Big", "Big"]:
             state["s2_active"] = True
-            state["s2_rounds_left"] = 3
+            state["s2_rounds_left"] = 3 # 3 Levels of betting will be allowed once triggered
             state["s2_pred"] = "Small"
             state["s2_level"] = 1
-        elif last_3_bs == ["Small", "Small", "Small"]:
+        elif last_2_bs == ["Small", "Small"]:
             state["s2_active"] = True
             state["s2_rounds_left"] = 3
             state["s2_pred"] = "Big"
@@ -226,7 +226,7 @@ def process_strategy(state, records):
 
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
-        next_issue_int = int(latest_issue) + 1  # 30s साठी पण +1 ठेवले आहे, जेणेकरून 20th रेकॉर्ड अचूक मिळेल
+        next_issue_int = int(latest_issue) + 1  
         
         update_predictions(state, next_issue_int)
         
@@ -263,15 +263,15 @@ def process_strategy(state, records):
                 state["s2_level"] = 1
                 state["s2_pred"] = "WAIT"
                 s2_res_status = f"✅ WIN"
-                prev_res_text += f"🔸 S2 (3-Opp): ✅ WIN\n"
+                prev_res_text += f"🔸 S2 (2-Opp): ✅ WIN\n"
             else:
                 state["stats"]["s2_fail"] += 1
                 state["s2_level"] += 1
                 state["s2_rounds_left"] -= 1
                 s2_res_status = f"❌ FAIL"
-                prev_res_text += f"🔸 S2 (3-Opp): ❌ FAIL\n"
+                prev_res_text += f"🔸 S2 (2-Opp): ❌ FAIL\n"
                 
-                # If 3 rounds completed and still failed, reset
+                # If rounds completed and still failed, reset
                 if state["s2_rounds_left"] <= 0:
                     state["s2_active"] = False
                     state["s2_level"] = 1
@@ -323,7 +323,7 @@ def render_game_panel(state):
         
     # Strat 2 UI
     if state["s2_pred"] == "WAIT":
-        s2_ui_text = "[yellow]WAIT (Waiting for 3 B/S)[/]"
+        s2_ui_text = "[yellow]WAIT (Waiting for 2 B/S)[/]"
     else:
         s2_color = "dark_orange" if state["s2_pred"] == "Big" else "bright_blue"
         s2_ui_text = f"[{s2_color}]{state['s2_pred']}[/] (L{state['s2_level']})"
@@ -332,7 +332,7 @@ def render_game_panel(state):
     
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
     panel_text += f"📏 [bold]Strategy 1 (20th):[/] {s1_ui_text}\n"
-    panel_text += f"📐 [bold]Strategy 2 (3-Opp):[/] {s2_ui_text}\n"
+    panel_text += f"📐 [bold]Strategy 2 (2-Opp):[/] {s2_ui_text}\n"
     panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
     panel_text += f"📊 [bold]S1 Stats - W:[/] [green]{state['stats']['s1_win']}[/] | [bold]F:[/] [red]{state['stats']['s1_fail']}[/]\n"
     panel_text += f"📊 [bold]S2 Stats - W:[/] [green]{state['stats']['s2_win']}[/] | [bold]F:[/] [red]{state['stats']['s2_fail']}[/]\n"

@@ -150,53 +150,55 @@ def fetch_history_records(url, state):
     return all_records
 
 def update_predictions(state, next_issue_int):
-    # --- Strategy 1 Logic (2-Round Pattern for Big/Small & Color) ---
-    if len(state["full_history"]) >= 2:
-        last_2_bs = [x["bs"] for x in state["full_history"][:2]]
-        last_2_color = [x["color"] for x in state["full_history"][:2]]
-        
-        # Big/Small 2-Round Opposite Prediction
-        if last_2_bs == ["Big", "Big"]:
-            pred_bs = "Small"
-        elif last_2_bs == ["Small", "Small"]:
-            pred_bs = "Big"
-        else:
-            pred_bs = "WAIT"
+    # Only evaluate new pattern if not currently active on a running chain
+    if not state["s1_active"]:
+        if len(state["full_history"]) >= 2:
+            last_2_bs = [x["bs"] for x in state["full_history"][:2]]
+            last_2_color = [x["color"] for x in state["full_history"][:2]]
             
-        # Color 2-Round Opposite Prediction
-        if last_2_color == ["Red", "Red"]:
-            pred_color = "Green"
-        elif last_2_color == ["Green", "Green"]:
-            pred_color = "Red"
-        else:
-            pred_color = "WAIT"
-            
-        if pred_bs != "WAIT" and pred_color != "WAIT":
-            state["s1_active"] = True
-            state["s1_pred_bs"] = pred_bs
-            state["s1_pred_color"] = pred_color
-            
-            # Number Prediction mapping based on Big/Small + Color
-            if pred_bs == "Big" and pred_color == "Red":
-                state["s1_pred_nums"] = [8, 6]
-            elif pred_bs == "Small" and pred_color == "Green":
-                state["s1_pred_nums"] = [1, 3]
-            elif pred_bs == "Big" and pred_color == "Green":
-                state["s1_pred_nums"] = [7, 9]
-            elif pred_bs == "Small" and pred_color == "Red":
-                state["s1_pred_nums"] = [2, 4]
+            # Big/Small 2-Round Opposite Prediction
+            if last_2_bs == ["Big", "Big"]:
+                pred_bs = "Small"
+            elif last_2_bs == ["Small", "Small"]:
+                pred_bs = "Big"
             else:
+                pred_bs = "WAIT"
+                
+            # Color 2-Round Opposite Prediction
+            if last_2_color == ["Red", "Red"]:
+                pred_color = "Green"
+            elif last_2_color == ["Green", "Green"]:
+                pred_color = "Red"
+            else:
+                pred_color = "WAIT"
+                
+            if pred_bs != "WAIT" and pred_color != "WAIT":
+                state["s1_active"] = True
+                state["s1_pred_bs"] = pred_bs
+                state["s1_pred_color"] = pred_color
+                state["s1_level"] = 1
+                
+                # Number Prediction mapping based on Big/Small + Color
+                if pred_bs == "Big" and pred_color == "Red":
+                    state["s1_pred_nums"] = [8, 6]
+                elif pred_bs == "Small" and pred_color == "Green":
+                    state["s1_pred_nums"] = [1, 3]
+                elif pred_bs == "Big" and pred_color == "Green":
+                    state["s1_pred_nums"] = [7, 9]
+                elif pred_bs == "Small" and pred_color == "Red":
+                    state["s1_pred_nums"] = [2, 4]
+                else:
+                    state["s1_pred_nums"] = []
+            else:
+                state["s1_active"] = False
+                state["s1_pred_bs"] = "WAIT"
+                state["s1_pred_color"] = "WAIT"
                 state["s1_pred_nums"] = []
         else:
             state["s1_active"] = False
             state["s1_pred_bs"] = "WAIT"
             state["s1_pred_color"] = "WAIT"
             state["s1_pred_nums"] = []
-    else:
-        state["s1_active"] = False
-        state["s1_pred_bs"] = "WAIT"
-        state["s1_pred_color"] = "WAIT"
-        state["s1_pred_nums"] = []
 
 def process_strategy(state, records):
     if not records: return False
@@ -250,25 +252,35 @@ def process_strategy(state, records):
         prev_res_text = f"🎯 Result: *{latest_number_str}* ({latest_bs} | {latest_color})\n"
         s1_res_status = "-"
         
+        # Keep track of active level for history logging before modification
+        current_logged_level = state["s1_level"]
+
         # --- Evaluate Strategy 1 ---
         if state["s1_active"] and state["s1_pred_bs"] != "WAIT":
             state["stats"]["total_trades"] += 1
             if state["s1_pred_bs"] == latest_bs:
                 state["stats"]["s1_win"] += 1
-                state["s1_level"] = 1 # Reset level on Win
                 s1_res_status = f"{state['s1_pred_bs']} ✅ WIN"
                 prev_res_text += f"🔹 S1: ✅ WIN\n"
+                # WIN: Reset level, deactivate active chain so it looks for a new pattern
+                state["s1_level"] = 1
+                state["s1_active"] = False
+                state["s1_pred_bs"] = "WAIT"
+                state["s1_pred_color"] = "WAIT"
+                state["s1_pred_nums"] = []
             else:
                 state["stats"]["s1_fail"] += 1
-                state["s1_level"] += 1 # Increment level on Fail
                 s1_res_status = f"{state['s1_pred_bs']} ❌ FAIL"
                 prev_res_text += f"🔹 S1: ❌ FAIL\n"
+                # FAIL: Increment level and KEEP s1_active = True to persist the same prediction for the next level
+                state["s1_level"] += 1
+                state["s1_active"] = True
         
         # Add to recent UI history
         state["history"].append({
             "issue": latest_issue[-4:],
-            "s1_pred_bs": state["s1_pred_bs"] if state["s1_active"] else "WAIT",
-            "s1_level": f"L{state['s1_level'] - 1 if s1_res_status != '-' else '-'}", 
+            "s1_pred_bs": state["s1_pred_bs"] if state["s1_active"] or "WIN" in s1_res_status or "FAIL" in s1_res_status else "WAIT",
+            "s1_level": f"L{current_logged_level}", 
             "s1_res": "[green]✅ WIN[/]" if "WIN" in s1_res_status else ("[red]❌ FAIL[/]" if "FAIL" in s1_res_status else "-")
         })
         if len(state["history"]) > 4: state["history"].pop(0)
@@ -276,8 +288,9 @@ def process_strategy(state, records):
         # Set Next Issue
         next_issue_int = int(latest_issue) + 1
         
-        # Update Predictions for Next Issue
-        update_predictions(state, next_issue_int)
+        # If not active (because it won or hasn't started), try finding a new pattern
+        if not state["s1_active"]:
+            update_predictions(state, next_issue_int)
 
         # Send Telegram Msg
         if state["is_running"]:

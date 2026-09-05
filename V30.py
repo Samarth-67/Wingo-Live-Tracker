@@ -39,7 +39,6 @@ def create_state(name, interval):
         "pred": "WAIT",
         "level": 1,
         "active": False,
-        "rounds_left": 0,
         
         # Virtual Wallet
         "virtual_balance": 20000,
@@ -110,7 +109,6 @@ def telegram_listener():
                             state_30s["level"] = 1
                             state_30s["pred"] = "WAIT"
                             state_30s["active"] = False
-                            state_30s["rounds_left"] = 0
                             state_30s["stats"]["win"] = 0
                             state_30s["stats"]["fail"] = 0
                             state_30s["virtual_balance"] = 20000
@@ -191,17 +189,14 @@ def fetch_history_records(url):
 def update_predictions(state, next_issue_int):
     # --- Strategy Logic (Wait for 2 Consecutive) ---
     if not state["active"] and len(state["full_history"]) >= 2:
-        # Check last 2 records
         last_2_bs = [x["bs"] for x in state["full_history"][:2]]
         
         if last_2_bs == ["Big", "Big"]:
             state["active"] = True
-            state["rounds_left"] = 4 # 4 Levels (100, 200, 500, 1100)
             state["pred"] = "Small"
             state["level"] = 1
         elif last_2_bs == ["Small", "Small"]:
             state["active"] = True
-            state["rounds_left"] = 4
             state["pred"] = "Big"
             state["level"] = 1
         else:
@@ -263,7 +258,7 @@ def process_strategy(state, records):
                 res_status = f"✅ WIN"
                 prev_res_text += f"✅ *WIN* (+₹{bet_amt})\n"
                 
-                # Reset for next pattern
+                # Reset for next pattern on Win
                 state["active"] = False
                 state["level"] = 1
                 state["pred"] = "WAIT"
@@ -274,11 +269,11 @@ def process_strategy(state, records):
                 res_status = f"❌ FAIL"
                 prev_res_text += f"❌ *FAIL* (-₹{bet_amt})\n"
                 
-                state["level"] += 1
-                state["rounds_left"] -= 1
-                
-                # If rounds completed (Level 4 failed), reset
-                if state["level"] > 4 or state["rounds_left"] <= 0:
+                # Check Level Progression (L1 -> L2 -> L3 -> L4)
+                if state["level"] < 4:
+                    state["level"] += 1 # पुढील लेव्हलवर जा (उदा. L1 वरून L2, L2 वरून L3, L3 वरून L4)
+                else:
+                    # जर Level 4 देखील फेल गेला, तर बॉट रिसेट होईल आणि नवीन पॅटर्नची वाट बघेल
                     prev_res_text += f"⚠️ *Level 4 Failed. Waiting for new pattern.*\n"
                     state["active"] = False
                     state["level"] = 1
@@ -290,7 +285,7 @@ def process_strategy(state, records):
         state["history"].append({
             "issue": latest_issue[-4:],
             "pred": state["pred"] if state["active"] else "WAIT",
-            "level": f"L{state['level'] - 1 if res_status != '-' else '-'}",
+            "level": f"L{state['level'] if res_status == '-' else (state['level'] - 1 if state['level'] > 1 else 4)}",
             "res": "[green]✅ WIN[/]" if "WIN" in res_status else ("[red]❌ FAIL[/]" if "FAIL" in res_status else "-")
         })
         if len(state["history"]) > 5: state["history"].pop(0)
@@ -309,18 +304,16 @@ def process_strategy(state, records):
     return False
 
 def worker_30s():
-    # 30S ची API URL
     url = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
     while True:
         records = fetch_history_records(url)
         if records:
             process_strategy(state_30s, records)
-        time.sleep(1) # 30S साठी फास्ट पोलिंग
+        time.sleep(1)
 
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
     
-    # UI Text
     if state["pred"] == "WAIT":
         ui_text = "[yellow]WAIT (Waiting for 2 B/S)[/]"
         bet_ui = "₹0"

@@ -2,15 +2,20 @@ import os
 import time
 import threading
 import requests
-from flask import Flask, render_template_string, jsonify
+from rich.table import Table
+from rich.console import Console, Group
+from rich.panel import Panel
+from rich.align import Align
+from rich.live import Live
 
-app = Flask(__name__)
+console = Console()
 
 # ---------------- TELEGRAM BOT CONFIGURATION ----------------
 TELEGRAM_BOT_TOKEN = "8886107397:AAHENOebGnrupxvGKqKh5cKC3SmujXJOV3w" 
 TARGET_GROUP_ID = "-1004370895879"  
 SECRET_PASSWORD = "12345"  
 # ------------------------------------------------------------
+
 # ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session
 api_session = requests.Session()
 
@@ -35,7 +40,7 @@ def create_state(name, interval):
         "s1_base_pred": None,
         "s1_count": 0,
         
-        # Strategy 2 (3 Consecutive Opposite)
+        # Strategy 2 (3 Consecutive Opposite - Pause/Stop until criteria matches)
         "s2_pred": "WAIT",
         "s2_level": 1,
         "s2_active": False,
@@ -46,8 +51,8 @@ def create_state(name, interval):
         "full_history": [], 
         "history": [],
         "stats": {"s1_win": 0, "s1_fail": 0, "s2_win": 0, "s2_fail": 0, "total_trades": 0},
-        "is_running": False,       
-        "active_chat_id": None,   
+        "is_running": False,        
+        "active_chat_id": None,    
         "live_records": []
     }
 
@@ -57,7 +62,7 @@ state_1m = create_state("WinGo 1M", "1M")
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
     def _send():
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         try:
             api_session.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=3)
         except Exception:
@@ -68,7 +73,7 @@ def telegram_listener():
     offset = 0
     while True:
         try:
-            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={offset}&timeout=2"
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={offset}&timeout=2"
             response = api_session.get(url, timeout=5)
             if response.status_code == 200:
                 for result in response.json().get("result", []):
@@ -82,7 +87,7 @@ def telegram_listener():
                         parts = text.split()
                         if len(parts) == 2:
                             pwd = parts[1]
-                            if pwd == PASS_1M:
+                            if pwd == SECRET_PASSWORD:
                                 state_1m["is_running"] = True
                                 state_1m["active_chat_id"] = chat_id
                                 send_telegram_message_direct(chat_id, f"✅ *[1M Dual Strategy] Activated! Live Prediction is ON.*")
@@ -94,7 +99,7 @@ def telegram_listener():
                         parts = text.split()
                         if len(parts) == 2:
                             pwd = parts[1]
-                            if pwd == PASS_1M:
+                            if pwd == SECRET_PASSWORD:
                                 state_1m["is_running"] = False
                                 send_telegram_message_direct(chat_id, "🛑 *[1M Dual Strategy] Stopped Successfully!*")
                             else:
@@ -103,7 +108,7 @@ def telegram_listener():
                     # --- RESET COMMAND ---
                     elif text.startswith("/reset"):
                         parts = text.split()
-                        if len(parts) == 2 and parts[1] == PASS_1M:
+                        if len(parts) == 2 and parts[1] == SECRET_PASSWORD:
                             state_1m["s1_level"] = 1
                             state_1m["s1_pred"] = "WAIT"
                             state_1m["s1_active"] = False
@@ -141,7 +146,7 @@ def send_telegram_signal(state, issue, prev_res_text=None):
         
     text += f"🎟️ *Next Issue:* `{issue}`\n\n"
     
-    # Strategy 1 Text
+    # Strategy 1 Text (Continuous)
     if not state["s1_active"] or state["s1_pred"] == "WAIT":
         text += f"📏 *Strategy 1 (3-Circle):* ⏳ Waiting for 3 B/S...\n"
     else:
@@ -149,7 +154,7 @@ def send_telegram_signal(state, issue, prev_res_text=None):
         s1_bet = BET_TABLE.get(min(state["s1_level"], 4), 1100)
         text += f"📏 *Strategy 1 (3-Circle):* *{s1_icon}* | 🎯 L{state['s1_level']} (₹{s1_bet})\n"
 
-    # Strategy 2 Text (Stop Trading message when inactive)
+    # Strategy 2 Text (Pause / Stop Trading when inactive)
     if not state["s2_active"] or state["s2_pred"] == "WAIT":
         text += f"📐 *Strategy 2 (3-Opp):* 🛑 *Stop Trading* (Waiting for 3 B/S)...\n\n"
     else:
@@ -197,17 +202,17 @@ def fetch_history_records(url):
     return all_records
 
 def update_predictions(state, next_issue_int):
-    # --- Strategy 1 Logic (3-Circle Continuous Pattern: 3 Big, 3 Small, 3 Big, 3 Small...) ---
+    # --- Strategy 1 Logic (3-Circle Continuous Pattern) ---
     if not state["s1_active"] and len(state["full_history"]) >= 3:
         last_3_bs = [x["bs"] for x in state["full_history"][:3]]
         if last_3_bs == ["Big", "Big", "Big"]:
             state["s1_active"] = True
-            state["s1_base_pred"] = "Small"  # Starts with 3 Smalls block
+            state["s1_base_pred"] = "Small"  
             state["s1_count"] = 0
             state["s1_level"] = 1
         elif last_3_bs == ["Small", "Small", "Small"]:
             state["s1_active"] = True
-            state["s1_base_pred"] = "Big"   # Starts with 3 Bigs block
+            state["s1_base_pred"] = "Big"   
             state["s1_count"] = 0
             state["s1_level"] = 1
             
@@ -220,7 +225,7 @@ def update_predictions(state, next_issue_int):
     else:
         state["s1_pred"] = "WAIT"
 
-    # --- Strategy 2 Logic (Wait for 3 Consecutive) ---
+    # --- Strategy 2 Logic (3-Opp: Pauses/Stops until 3 consecutive criteria match) ---
     if not state["s2_active"] and len(state["full_history"]) >= 3:
         last_3_bs = [x["bs"] for x in state["full_history"][:3]]
         
@@ -280,14 +285,14 @@ def process_strategy(state, records):
         s1_res_status = "-"
         s2_res_status = "-"
         
-        # --- Evaluate Strategy 1 ---
+        # --- Evaluate Strategy 1 (Continuous) ---
         if state["s1_active"] and state["s1_pred"] != "WAIT":
             state["stats"]["total_trades"] += 1
             s1_bet = BET_TABLE.get(min(state["s1_level"], 4), 1100)
             if state["s1_pred"] == latest_bs:
                 state["stats"]["s1_win"] += 1
                 state["virtual_balance"] += s1_bet
-                state["s1_level"] = 1 # Reset level on Win, stays active continuously
+                state["s1_level"] = 1 
                 s1_res_status = f"{state['s1_pred']} ✅ WIN"
                 prev_res_text += f"🔹 S1 (3-Circle): ✅ WIN (+₹{s1_bet})\n"
             else:
@@ -300,10 +305,9 @@ def process_strategy(state, records):
                 s1_res_status = f"{state['s1_pred']} ❌ FAIL"
                 prev_res_text += f"🔹 S1 (3-Circle): ❌ FAIL (-₹{s1_bet})\n"
             
-            # Increment count for the 3-circle pattern sequence
             state["s1_count"] += 1
         
-        # --- Evaluate Strategy 2 ---
+        # --- Evaluate Strategy 2 (Pause / Stop until criteria matches again) ---
         if state["s2_active"] and state["s2_pred"] != "WAIT":
             s2_bet = BET_TABLE.get(min(state["s2_level"], 4), 1100)
             if state["s2_pred"] == latest_bs:
@@ -313,7 +317,7 @@ def process_strategy(state, records):
                 state["s2_level"] = 1
                 state["s2_pred"] = "WAIT"
                 s2_res_status = f"✅ WIN"
-                prev_res_text += f"🔸 S2 (3-Opp): ✅ WIN (+₹{s2_bet}) (Reset to L1)\n"
+                prev_res_text += f"🔸 S2 (3-Opp): ✅ WIN (+₹{s2_bet}) (Paused, waiting for criteria)\n"
             else:
                 state["stats"]["s2_fail"] += 1
                 state["virtual_balance"] -= s2_bet
@@ -321,10 +325,10 @@ def process_strategy(state, records):
                     state["s2_level"] += 1  
                 else:
                     state["s2_level"] = 1
-                    state["s2_active"] = False
+                    state["s2_active"] = False 
                     state["s2_pred"] = "WAIT"
                 s2_res_status = f"❌ FAIL"
-                prev_res_text += f"🔸 S2 (3-Opp): ❌ FAIL (-₹{s2_bet}) (Moving to L{state['s2_level']})\n"
+                prev_res_text += f"🔸 S2 (3-Opp): ❌ FAIL (-₹{s2_bet}) (Paused, waiting for criteria)\n"
                 
         # Add to recent UI history
         state["history"].append({
@@ -362,7 +366,7 @@ def worker_1m():
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
     
-    # Strat 1 UI
+    # Strat 1 UI (Continuous)
     if not state["s1_active"] or state["s1_pred"] == "WAIT":
         s1_ui_text = "[yellow]WAIT (Waiting for 3 B/S)[/]"
     else:
@@ -370,7 +374,7 @@ def render_game_panel(state):
         s1_bet = BET_TABLE.get(min(state["s1_level"], 4), 1100)
         s1_ui_text = f"[{s1_color}]{state['s1_pred']}[/] (L{state['s1_level']} - ₹{s1_bet})"
         
-    # Strat 2 UI (Stop Trading message when inactive)
+    # Strat 2 UI (Pause / Stop Trading message when inactive)
     if not state["s2_active"] or state["s2_pred"] == "WAIT":
         s2_ui_text = "[red]🛑 Stop Trading[/] (Waiting for 3 B/S)"
     else:

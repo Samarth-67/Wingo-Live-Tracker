@@ -9,7 +9,7 @@ app = Flask(__name__)
 # ---------------- TELEGRAM BOT CONFIGURATION ----------------
 TELEGRAM_BOT_TOKEN = "8886107397:AAHENOebGnrupxvGKqKh5cKC3SmujXJOV3w" 
 TARGET_GROUP_ID = "-1004370895879"  
-SECRET_PASSWORD = "12345"   
+SECRET_PASSWORD = "12345"  
 # ------------------------------------------------------------
 
 # ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session
@@ -32,7 +32,6 @@ bot_state = {
     "pred": "WAIT",
     "level": 1,
     "active": False,
-    "rounds_left": 0,
     
     # Virtual Wallet
     "virtual_balance": 20000,
@@ -98,7 +97,6 @@ def telegram_listener():
                             bot_state["level"] = 1
                             bot_state["pred"] = "WAIT"
                             bot_state["active"] = False
-                            bot_state["rounds_left"] = 0
                             bot_state["win"] = 0
                             bot_state["fail"] = 0
                             bot_state["virtual_balance"] = 20000
@@ -180,12 +178,10 @@ def update_predictions(state, next_issue_int):
         
         if last_2_bs == ["Big", "Big"]:
             state["active"] = True
-            state["rounds_left"] = 4 # Allow 4 Levels (100, 200, 500, 1100)
             state["pred"] = "Small"
             state["level"] = 1
         elif last_2_bs == ["Small", "Small"]:
             state["active"] = True
-            state["rounds_left"] = 4
             state["pred"] = "Big"
             state["level"] = 1
         else:
@@ -244,7 +240,7 @@ def process_strategy(state, records):
                 
                 prev_res_text += f"✅ *WIN* (+₹{bet_amt})\n"
                 
-                # Reset for next pattern
+                # Reset for next pattern on Win
                 state["active"] = False
                 state["level"] = 1
                 state["pred"] = "WAIT"
@@ -254,11 +250,11 @@ def process_strategy(state, records):
                 
                 prev_res_text += f"❌ *FAIL* (-₹{bet_amt})\n"
                 
-                state["level"] += 1
-                state["rounds_left"] -= 1
-                
-                # Check if Level 4 failed (Max limit reached)
-                if state["level"] > 4 or state["rounds_left"] <= 0:
+                # Proper Level Progression (L1 -> L2 -> L3 -> L4)
+                if state["level"] < 4:
+                    state["level"] += 1  # पुढील लेव्हलवर जाईल (उदा. L3 फेल झाल्यास L4 वर जाईल)
+                else:
+                    # जर Level 4 देखील फेल गेला, तर बॉट रिसेट होईल आणि नवीन पॅटर्नची वाट बघेल
                     prev_res_text += f"⚠️ *Level 4 Failed. Waiting for new pattern.*\n"
                     state["active"] = False
                     state["level"] = 1

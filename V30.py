@@ -271,16 +271,15 @@ def process_strategy(state, records):
                 
                 # Check Level Progression (L1 -> L2 -> L3 -> L4)
                 if state["level"] < 4:
-                    state["level"] += 1 # पुढील लेव्हलवर जा (उदा. L1 वरून L2, L2 वरून L3, L3 वरून L4)
+                    state["level"] += 1 # पुढील लेव्हलवर जा
                 else:
-                    # जर Level 4 देखील फेल गेला, तर बॉट रिसेट होईल आणि नवीन पॅटर्नची वाट बघेल
                     prev_res_text += f"⚠️ *Level 4 Failed. Waiting for new pattern.*\n"
                     state["active"] = False
                     state["level"] = 1
                     state["pred"] = "WAIT"
                     
         state["last_result_text"] = prev_res_text
-                    
+                
         # Add to recent UI history
         state["history"].append({
             "issue": latest_issue[-4:],

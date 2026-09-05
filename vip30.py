@@ -352,7 +352,8 @@ def render_game_panel(state):
     else:
         for h in state["history"]: 
             s1_p = f"{h['s1_pred'][0]}({h['s1_level']})" if h['s1_pred'] != "WAIT" else "-"
-            s2_p = f"{h['s2_pred'][0]}({h['s2_level']})" if h['s2_active'] and h['s2_pred'] != "WAIT" else "-"
+            # एरर फिक्स: h['s2_active'] काढून फक्त s2_pred तपासला आहे जेणेकरून KeyError येणार नाही
+            s2_p = f"{h['s2_pred'][0]}({h['s2_level']})" if h['s2_pred'] != "WAIT" else "-"
             
             hist_table.add_row(
                 str(h["issue"]), 

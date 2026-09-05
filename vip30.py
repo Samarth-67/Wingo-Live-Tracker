@@ -26,19 +26,20 @@ def create_state(name, interval):
         "name": name,
         "interval": interval,
         "last_processed_issue": None,
-        
+
         # Strategy 1 (3-Circle Continuous Pattern: 3 Big, 3 Small, 3 Big, 3 Small...)
         "s1_pred": "WAIT",
         "s1_level": 1,
         "s1_active": False,
         "s1_base_pred": None,
         "s1_count": 0,
-        
-        # Strategy 2 (3 Consecutive Opposite - Conditional)
+
+        # Strategy 2 (3 Consecutive Opposite - Conditional with Swap)
         "s2_pred": "WAIT",
         "s2_level": 1,
         "s2_active": False,
-        
+        "s2_target_count": 0,  # 3 लेव्हल्स मोजण्यासाठी
+
         "full_history": [], 
         "history": [],
         "stats": {"s1_win": 0, "s1_fail": 0, "s2_win": 0, "s2_fail": 0, "total_trades": 0},
@@ -80,7 +81,7 @@ def telegram_listener():
                             send_telegram_message_direct(chat_id, f"✅ *[30S Dual Strategy] Activated! Live Prediction is ON.*")
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
-                            
+
                     elif text.startswith("/stop"):
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == PASS_30S:
@@ -97,16 +98,16 @@ def send_telegram_signal(state, issue, prev_res_text=None):
     if not target_chat_id: return
 
     game_name = state["name"]
-    
+
     text = f"🚀 *{game_name} New Signal* 🚀\n\n"
-    
+
     if prev_res_text:
         text += f"📊 *मागील निकाल (Previous Result):*\n"
         text += f"{prev_res_text}\n"
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
-        
+
     text += f"🎟️ *Next Issue:* `{issue}`\n\n"
-    
+
     # Strategy 1 Text
     if not state["s1_active"] or state["s1_pred"] == "WAIT":
         text += f"📏 *Strategy 1 (3-Circle):* ⏳ Waiting for 3 B/S...\n"
@@ -120,9 +121,9 @@ def send_telegram_signal(state, issue, prev_res_text=None):
     else:
         s2_icon = "🟠 Big" if state["s2_pred"] == "Big" else "🔵 Small"
         text += f"📐 *Strategy 2 (3-Opp):* *{s2_icon}* | 🎯 L{state['s2_level']}\n\n"
-        
+
     text += f"💡 _Bet according to your level._"
-        
+
     send_telegram_message_direct(target_chat_id, text)
 
 def fetch_history_records(url, state):
@@ -132,7 +133,7 @@ def fetch_history_records(url, state):
         "Referer": "https://draw.ar-lottery01.com/",
     }
     all_records = []
-    
+
     try:
         params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
         response = api_session.get(url, headers=headers, params=params, timeout=3)
@@ -143,7 +144,7 @@ def fetch_history_records(url, state):
             elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: all_records.extend(data["data"]["list"])
     except Exception:
         pass
-        
+
     if len(all_records) <= 10:
         for p in [2, 3]:
             try:
@@ -156,7 +157,7 @@ def fetch_history_records(url, state):
                     elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: all_records.extend(data["data"]["list"])
             except Exception:
                 pass
-            
+
     return all_records
 
 def update_predictions(state, next_issue_int):
@@ -173,7 +174,7 @@ def update_predictions(state, next_issue_int):
             state["s1_base_pred"] = "Big"   # Starts with 3 Bigs block
             state["s1_count"] = 0
             state["s1_level"] = 1
-            
+
     if state["s1_active"]:
         block_idx = (state["s1_count"] // 3) % 2
         if state["s1_base_pred"] == "Small":
@@ -190,10 +191,12 @@ def update_predictions(state, next_issue_int):
             state["s2_active"] = True
             state["s2_pred"] = "Small"
             state["s2_level"] = 1
+            state["s2_target_count"] = 0 # काउंट रिसेट 
         elif last_3_bs == ["Small", "Small", "Small"]:
             state["s2_active"] = True
             state["s2_pred"] = "Big"
             state["s2_level"] = 1
+            state["s2_target_count"] = 0 # काउंट रिसेट 
         else:
             state["s2_pred"] = "WAIT"
     elif not state["s2_active"]:
@@ -202,11 +205,11 @@ def update_predictions(state, next_issue_int):
 def process_strategy(state, records):
     if not records: return False
     state["live_records"] = records[:5]
-    
+
     latest_item = records[0]
     latest_issue = str(latest_item.get("issueNumber") or latest_item.get("issue") or "-")
     latest_number_str = str(latest_item.get("number") or latest_item.get("drawNumber") or "-")
-    
+
     if not (latest_number_str.isdigit() and latest_issue.isdigit()): return False
     latest_bs = "Big" if int(latest_number_str) >= 5 else "Small"
 
@@ -223,7 +226,7 @@ def process_strategy(state, records):
                 "num": num_str
             })
             existing_issues.add(iss)
-                
+
     state["full_history"].sort(key=lambda x: int(x["issue"]), reverse=True)
     state["full_history"] = state["full_history"][:60] 
 
@@ -231,9 +234,9 @@ def process_strategy(state, records):
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
         next_issue_int = int(latest_issue) + 1
-        
+
         update_predictions(state, next_issue_int)
-        
+
         if state["is_running"]:
             send_telegram_signal(state, str(next_issue_int))
         return True
@@ -245,7 +248,7 @@ def process_strategy(state, records):
         prev_res_text = f"🎯 Result: *{latest_number_str}* ({latest_bs})\n"
         s1_res_status = "-"
         s2_res_status = "-"
-        
+
         # --- Evaluate Strategy 1 ---
         if state["s1_active"] and state["s1_pred"] != "WAIT":
             state["stats"]["total_trades"] += 1
@@ -259,25 +262,33 @@ def process_strategy(state, records):
                 state["s1_level"] += 1 # Increment level on Fail
                 s1_res_status = f"{state['s1_pred']} ❌ FAIL"
                 prev_res_text += f"🔹 S1: ❌ FAIL\n"
-            
+
             # Increment count for the 3-circle pattern sequence
             state["s1_count"] += 1
-        
+
         # --- Evaluate Strategy 2 ---
         if state["s2_active"] and state["s2_pred"] != "WAIT":
             if state["s2_pred"] == latest_bs:
                 state["stats"]["s2_win"] += 1
-                state["s2_active"] = False # Reset & Stop on Win, wait for next 3 B/S
+                state["s2_active"] = False # ✅ जिंकल्यावर थांबेल आणि नवीन 3 B/S ची वाट बघेल
                 state["s2_level"] = 1
                 state["s2_pred"] = "WAIT"
+                state["s2_target_count"] = 0
                 s2_res_status = f"✅ WIN"
                 prev_res_text += f"🔸 S2: ✅ WIN\n"
             else:
                 state["stats"]["s2_fail"] += 1
-                state["s2_level"] += 1 # Continues level until win
+                state["s2_level"] += 1 # ❌ हरल्यावर लेव्हल वाढेल 
+                state["s2_target_count"] += 1 # फेल काउंट वाढेल
+                
+                # जर सलग ३ वेळा एकच सिग्नल फेल झाला, तर पुढच्या लेव्हलसाठी विरुद्ध (Opposite) सिग्नल देईल
+                if state["s2_target_count"] >= 3:
+                    state["s2_pred"] = "Small" if state["s2_pred"] == "Big" else "Big"
+                    state["s2_target_count"] = 0 # नवीन सिग्नलसाठी काउंट रिसेट 
+                    
                 s2_res_status = f"❌ FAIL"
                 prev_res_text += f"🔸 S2: ❌ FAIL\n"
-                
+
         # Add to recent UI history
         state["history"].append({
             "issue": latest_issue[-4:],
@@ -292,7 +303,7 @@ def process_strategy(state, records):
 
         # Set Next Issue
         next_issue_int = int(latest_issue) + 1
-        
+
         # Update Predictions for Next Issue
         update_predictions(state, next_issue_int)
 
@@ -316,45 +327,44 @@ def worker_30s():
 
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
-    
+
     # Strat 1 UI
     if not state["s1_active"] or state["s1_pred"] == "WAIT":
         s1_ui_text = "[yellow]WAIT (Waiting for 3 B/S)[/]"
     else:
         s1_color = "dark_orange" if state["s1_pred"] == "Big" else "bright_blue"
         s1_ui_text = f"[{s1_color}]{state['s1_pred']}[/] (L{state['s1_level']})"
-        
+
     # Strat 2 UI
     if not state["s2_active"] or state["s2_pred"] == "WAIT":
         s2_ui_text = "[yellow]WAIT (Waiting for 3 B/S)[/]"
     else:
         s2_color = "dark_orange" if state["s2_pred"] == "Big" else "bright_blue"
         s2_ui_text = f"[{s2_color}]{state['s2_pred']}[/] (L{state['s2_level']})"
-        
+
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
-    
+
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
     panel_text += f"📏 [bold]Strategy 1 (3-Circle):[/] {s1_ui_text}\n"
     panel_text += f"📐 [bold]Strategy 2 (3-Opp):[/] {s2_ui_text}\n"
     panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
     panel_text += f"📊 [bold]S1 Stats - W:[/] [green]{state['stats']['s1_win']}[/] | [bold]F:[/] [red]{state['stats']['s1_fail']}[/]\n"
     panel_text += f"📊 [bold]S2 Stats - W:[/] [green]{state['stats']['s2_win']}[/] | [bold]F:[/] [red]{state['stats']['s2_fail']}[/]\n"
-    
+
     hist_table = Table(show_header=True, width=72)
     hist_table.add_column("Iss", justify="center")
     hist_table.add_column("S1 (L)", justify="center")
     hist_table.add_column("S1 Res", justify="center")
     hist_table.add_column("S2 (L)", justify="center")
     hist_table.add_column("S2 Res", justify="center")
-    
+
     if not state["history"]:
         hist_table.add_row("-", "-", "-", "-", "-")
     else:
         for h in state["history"]: 
             s1_p = f"{h['s1_pred'][0]}({h['s1_level']})" if h['s1_pred'] != "WAIT" else "-"
-            # एरर फिक्स: h['s2_active'] काढून फक्त s2_pred तपासला आहे जेणेकरून KeyError येणार नाही
             s2_p = f"{h['s2_pred'][0]}({h['s2_level']})" if h['s2_pred'] != "WAIT" else "-"
-            
+
             hist_table.add_row(
                 str(h["issue"]), 
                 s1_p, 
@@ -362,7 +372,7 @@ def render_game_panel(state):
                 s2_p,
                 str(h["s2_res"])[0:13]
             )
-    
+
     return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']}[/]", border_style="cyan", width=78)
 
 def create_master_ui():
@@ -375,7 +385,7 @@ def create_master_ui():
 if __name__ == "__main__":
     t_list = threading.Thread(target=telegram_listener, daemon=True)
     t_30s = threading.Thread(target=worker_30s, daemon=True)
-    
+
     t_list.start(); t_30s.start()
 
     with Live(create_master_ui(), console=console, refresh_per_second=4, screen=False) as live:

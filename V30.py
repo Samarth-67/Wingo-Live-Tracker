@@ -27,7 +27,7 @@ def create_state(name, interval):
         "interval": interval,
         "last_processed_issue": None,
         
-        # Strategy 1 (2-Round Continuous Pattern: Big/Small & Color opposite prediction)
+        # Strategy 1 (2-Round Continuous Pattern: Big/Small Opposite Prediction)
         "s1_pred_bs": "WAIT",
         "s1_pred_color": "WAIT",
         "s1_pred_nums": [],
@@ -104,7 +104,7 @@ def send_telegram_signal(state, issue, prev_res_text=None):
     
     # Strategy 1 Text (2-Round)
     if not state["s1_active"] or state["s1_pred_bs"] == "WAIT":
-        text += f"📏 *Strategy 1 (2-Round):* ⏳ Waiting for 2 matching B/S & Color...\n\n"
+        text += f"📏 *Strategy 1 (2-Round):* ⏳ Waiting for 2 matching Big/Small...\n\n"
     else:
         s1_icon = "🟠 Big" if state["s1_pred_bs"] == "Big" else "🔵 Small"
         color_icon = "🟢 Green" if state["s1_pred_color"] == "Green" else "🔴 Red"
@@ -154,9 +154,9 @@ def update_predictions(state, next_issue_int):
     if not state["s1_active"]:
         if len(state["full_history"]) >= 2:
             last_2_bs = [x["bs"] for x in state["full_history"][:2]]
-            last_2_color = [x["color"] for x in state["full_history"][:2]]
+            latest_color = state["full_history"][0]["color"]
             
-            # Big/Small 2-Round Opposite Prediction
+            # Big/Small 2-Round Opposite Prediction (सलग २ वेळा बिग आल्यास स्मॉल, सलग २ वेळा स्मॉल आल्यास बिग)
             if last_2_bs == ["Big", "Big"]:
                 pred_bs = "Small"
             elif last_2_bs == ["Small", "Small"]:
@@ -164,21 +164,16 @@ def update_predictions(state, next_issue_int):
             else:
                 pred_bs = "WAIT"
                 
-            # Color 2-Round Opposite Prediction
-            if last_2_color == ["Red", "Red"]:
-                pred_color = "Green"
-            elif last_2_color == ["Green", "Green"]:
-                pred_color = "Red"
-            else:
-                pred_color = "WAIT"
-                
-            if pred_bs != "WAIT" and pred_color != "WAIT":
+            if pred_bs != "WAIT":
                 state["s1_active"] = True
                 state["s1_pred_bs"] = pred_bs
-                state["s1_pred_color"] = pred_color
                 state["s1_level"] = 1
                 
-                # Number Prediction mapping based on Big/Small + Color
+                # Color prediction based on latest opposite color to avoid WAIT
+                pred_color = "Red" if latest_color == "Green" else "Green"
+                state["s1_pred_color"] = pred_color
+                
+                # Number Prediction mapping
                 if pred_bs == "Big" and pred_color == "Red":
                     state["s1_pred_nums"] = [8, 6]
                 elif pred_bs == "Small" and pred_color == "Green":
@@ -252,7 +247,6 @@ def process_strategy(state, records):
         prev_res_text = f"🎯 Result: *{latest_number_str}* ({latest_bs} | {latest_color})\n"
         s1_res_status = "-"
         
-        # Keep track of active level for history logging before modification
         current_logged_level = state["s1_level"]
 
         # --- Evaluate Strategy 1 ---

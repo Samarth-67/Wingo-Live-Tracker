@@ -21,6 +21,14 @@ PASS_1M = "22222"   # १ मिनिटाच्या गेमसाठी
 # ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session
 api_session = requests.Session()
 
+# 💰 Betting Table (Level: Amount)
+BET_TABLE = {
+    1: 100,
+    2: 200,
+    3: 500,
+    4: 1100
+}
+
 def create_state(name, interval):
     return {
         "name": name,
@@ -35,6 +43,9 @@ def create_state(name, interval):
         "s2_pred": "WAIT",
         "s2_level": 1,
         "s2_active": False,
+        
+        # Virtual Wallet (₹20,000)
+        "virtual_balance": 20000,
         
         "full_history": [], 
         "history": [],
@@ -92,22 +103,41 @@ def telegram_listener():
                                 send_telegram_message_direct(chat_id, "🛑 *[1M Dual Strategy] Stopped Successfully!*")
                             else:
                                 send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
+
+                    # --- RESET COMMAND ---
+                    elif text.startswith("/reset"):
+                        parts = text.split()
+                        if len(parts) == 2 and parts[1] == PASS_1M:
+                            state_1m["s1_level"] = 1
+                            state_1m["s1_pred"] = "WAIT"
+                            state_1m["s2_level"] = 1
+                            state_1m["s2_pred"] = "WAIT"
+                            state_1m["s2_active"] = False
+                            state_1m["stats"]["s1_win"] = 0
+                            state_1m["stats"]["s1_fail"] = 0
+                            state_1m["stats"]["s2_win"] = 0
+                            state_1m["stats"]["s2_fail"] = 0
+                            state_1m["virtual_balance"] = 20000
+                            send_telegram_message_direct(chat_id, "🔄 *1M Bot Reset Successfully!*\nLevels are back to L1 and Wallet is ₹20,000.")
+                        else:
+                            send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
         except Exception:
             pass
         time.sleep(3)
 
-# 🚀 मेसेज पाठवण्याचे नवीन सिंगल फॉरमॅट लॉजिक
+# 🚀 मेसेज पाठवण्याचे लॉजिक
 def send_telegram_signal(state, issue, prev_res_text=None):
     target_chat_id = TARGET_GROUP_ID
     if not target_chat_id: return
 
     game_name = state["name"]
     
-    text = f"🚀 *{game_name} New Signal* 🚀\n\n"
+    text = f"🚀 *{game_name} Dual Strategy Bot* 🚀\n\n"
     
     if prev_res_text:
         text += f"📊 *मागील निकाल (Previous Result):*\n"
         text += f"{prev_res_text}\n"
+        text += f"💰 *Virtual Balance:* ₹{state['virtual_balance']}\n"
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
         
     text += f"🎟️ *Next Issue:* `{issue}`\n\n"
@@ -117,16 +147,18 @@ def send_telegram_signal(state, issue, prev_res_text=None):
         text += f"📏 *Strategy 1 (20th):* ⏳ Syncing...\n"
     else:
         s1_icon = "🟠 Big" if state["s1_pred"] == "Big" else "🔵 Small"
-        text += f"📏 *Strategy 1 (20th):* *{s1_icon}* | 🎯 L{state['s1_level']}\n"
+        s1_bet = BET_TABLE.get(min(state["s1_level"], 4), 1100)
+        text += f"📏 *Strategy 1 (20th):* *{s1_icon}* | 🎯 L{state['s1_level']} (₹{s1_bet})\n"
 
     # Strategy 2 Text (Stop Trading message when inactive)
     if not state["s2_active"] or state["s2_pred"] == "WAIT":
         text += f"📐 *Strategy 2 (3-Opp):* 🛑 *Stop Trading* (Waiting for 3 B/S)...\n\n"
     else:
         s2_icon = "🟠 Big" if state["s2_pred"] == "Big" else "🔵 Small"
-        text += f"📐 *Strategy 2 (3-Opp):* *{s2_icon}* | 🎯 L{state['s2_level']}\n\n"
+        s2_bet = BET_TABLE.get(min(state["s2_level"], 4), 1100)
+        text += f"📐 *Strategy 2 (3-Opp):* *{s2_icon}* | 🎯 L{state['s2_level']} (₹{s2_bet})\n\n"
         
-    text += f"💡 _Bet according to your level._"
+    text += f"💡 _Auto Virtual Betting is ON._"
         
     send_telegram_message_direct(target_chat_id, text)
 
@@ -240,31 +272,45 @@ def process_strategy(state, records):
         # --- Evaluate Strategy 1 ---
         if state["s1_pred"] != "WAIT":
             state["stats"]["total_trades"] += 1
+            s1_bet = BET_TABLE.get(min(state["s1_level"], 4), 1100)
             if state["s1_pred"] == latest_bs:
                 state["stats"]["s1_win"] += 1
+                state["virtual_balance"] += s1_bet
                 state["s1_level"] = 1 
                 s1_res_status = f"{state['s1_pred']} ✅ WIN"
-                prev_res_text += f"🔹 S1 (20th): ✅ WIN\n"
+                prev_res_text += f"🔹 S1 (20th): ✅ WIN (+₹{s1_bet})\n"
             else:
                 state["stats"]["s1_fail"] += 1
-                state["s1_level"] += 1
+                state["virtual_balance"] -= s1_bet
+                if state["s1_level"] < 4:
+                    state["s1_level"] += 1
+                else:
+                    state["s1_level"] = 1
                 s1_res_status = f"{state['s1_pred']} ❌ FAIL"
-                prev_res_text += f"🔹 S1 (20th): ❌ FAIL\n"
+                prev_res_text += f"🔹 S1 (20th): ❌ FAIL (-₹{s1_bet})\n"
         
         # --- Evaluate Strategy 2 ---
         if state["s2_active"] and state["s2_pred"] != "WAIT":
+            s2_bet = BET_TABLE.get(min(state["s2_level"], 4), 1100)
             if state["s2_pred"] == latest_bs:
                 state["stats"]["s2_win"] += 1
-                state["s2_active"] = False # WIN झाल्यावरच लेव्हल १ वर सेट होईल आणि नवीन पॅटर्नची वाट पाहिल
+                state["virtual_balance"] += s2_bet
+                state["s2_active"] = False 
                 state["s2_level"] = 1
                 state["s2_pred"] = "WAIT"
                 s2_res_status = f"✅ WIN"
-                prev_res_text += f"🔸 S2 (3-Opp): ✅ WIN (Reset to L1)\n"
+                prev_res_text += f"🔸 S2 (3-Opp): ✅ WIN (+₹{s2_bet}) (Reset to L1)\n"
             else:
                 state["stats"]["s2_fail"] += 1
-                state["s2_level"] += 1  # FAIL झाल्यास लेव्हल पुढे वाढत जाईल (L3 नंतर L4, L5, L6...)
+                state["virtual_balance"] -= s2_bet
+                if state["s2_level"] < 4:
+                    state["s2_level"] += 1  
+                else:
+                    state["s2_level"] = 1
+                    state["s2_active"] = False
+                    state["s2_pred"] = "WAIT"
                 s2_res_status = f"❌ FAIL"
-                prev_res_text += f"🔸 S2 (3-Opp): ❌ FAIL (Moving to L{state['s2_level']})\n"
+                prev_res_text += f"🔸 S2 (3-Opp): ❌ FAIL (-₹{s2_bet}) (Moving to L{state['s2_level']})\n"
                 
         # Add to recent UI history
         state["history"].append({
@@ -307,14 +353,16 @@ def render_game_panel(state):
         s1_ui_text = "[yellow]WAIT[/]"
     else:
         s1_color = "dark_orange" if state["s1_pred"] == "Big" else "bright_blue"
-        s1_ui_text = f"[{s1_color}]{state['s1_pred']}[/] (L{state['s1_level']})"
+        s1_bet = BET_TABLE.get(min(state["s1_level"], 4), 1100)
+        s1_ui_text = f"[{s1_color}]{state['s1_pred']}[/] (L{state['s1_level']} - ₹{s1_bet})"
         
     # Strat 2 UI (Stop Trading message when inactive)
     if not state["s2_active"] or state["s2_pred"] == "WAIT":
         s2_ui_text = "[red]🛑 Stop Trading[/] (Waiting for 3 B/S)"
     else:
         s2_color = "dark_orange" if state["s2_pred"] == "Big" else "bright_blue"
-        s2_ui_text = f"[{s2_color}]{state['s2_pred']}[/] (L{state['s2_level']})"
+        s2_bet = BET_TABLE.get(min(state["s2_level"], 4), 1100)
+        s2_ui_text = f"[{s2_color}]{state['s2_pred']}[/] (L{state['s2_level']} - ₹{s2_bet})"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
@@ -322,6 +370,7 @@ def render_game_panel(state):
     panel_text += f"📏 [bold]Strategy 1 (20th):[/] {s1_ui_text}\n"
     panel_text += f"📐 [bold]Strategy 2 (3-Opp):[/] {s2_ui_text}\n"
     panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
+    panel_text += f"💰 [bold green]Virtual Balance:[/] [bold cyan]₹{state['virtual_balance']}[/]\n"
     panel_text += f"📊 [bold]S1 Stats - W:[/] [green]{state['stats']['s1_win']}[/] | [bold]F:[/] [red]{state['stats']['s1_fail']}[/]\n"
     panel_text += f"📊 [bold]S2 Stats - W:[/] [green]{state['stats']['s2_win']}[/] | [bold]F:[/] [red]{state['stats']['s2_fail']}[/]\n"
     
@@ -352,7 +401,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_1m = render_game_panel(state_1m)
     return Group(
-        Align.center("[bold yellow]🚀 1 MINUTE DUAL STRATEGY BOT[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 1 MINUTE DUAL STRATEGY BOT (Virtual Wallet)[/bold yellow]\n"),
         Align.center(p_1m)
     )
 

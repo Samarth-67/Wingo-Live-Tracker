@@ -35,9 +35,12 @@ def create_state(name, interval):
         "interval": interval,
         "last_processed_issue": None,
         
-        # Strategy 1 (20th Record)
+        # Strategy 1 (3-Circle Continuous Pattern: 3 Big, 3 Small, 3 Big, 3 Small...)
         "s1_pred": "WAIT",
         "s1_level": 1,
+        "s1_active": False,
+        "s1_base_pred": None,
+        "s1_count": 0,
         
         # Strategy 2 (3 Consecutive Opposite)
         "s2_pred": "WAIT",
@@ -50,8 +53,8 @@ def create_state(name, interval):
         "full_history": [], 
         "history": [],
         "stats": {"s1_win": 0, "s1_fail": 0, "s2_win": 0, "s2_fail": 0, "total_trades": 0},
-        "is_running": False,        
-        "active_chat_id": None,    
+        "is_running": False,       
+        "active_chat_id": None,   
         "live_records": []
     }
 
@@ -110,6 +113,9 @@ def telegram_listener():
                         if len(parts) == 2 and parts[1] == PASS_1M:
                             state_1m["s1_level"] = 1
                             state_1m["s1_pred"] = "WAIT"
+                            state_1m["s1_active"] = False
+                            state_1m["s1_base_pred"] = None
+                            state_1m["s1_count"] = 0
                             state_1m["s2_level"] = 1
                             state_1m["s2_pred"] = "WAIT"
                             state_1m["s2_active"] = False
@@ -143,12 +149,12 @@ def send_telegram_signal(state, issue, prev_res_text=None):
     text += f"🎟️ *Next Issue:* `{issue}`\n\n"
     
     # Strategy 1 Text
-    if state["s1_pred"] == "WAIT":
-        text += f"📏 *Strategy 1 (20th):* ⏳ Syncing...\n"
+    if not state["s1_active"] or state["s1_pred"] == "WAIT":
+        text += f"📏 *Strategy 1 (3-Circle):* ⏳ Waiting for 3 B/S...\n"
     else:
         s1_icon = "🟠 Big" if state["s1_pred"] == "Big" else "🔵 Small"
         s1_bet = BET_TABLE.get(min(state["s1_level"], 4), 1100)
-        text += f"📏 *Strategy 1 (20th):* *{s1_icon}* | 🎯 L{state['s1_level']} (₹{s1_bet})\n"
+        text += f"📏 *Strategy 1 (3-Circle):* *{s1_icon}* | 🎯 L{state['s1_level']} (₹{s1_bet})\n"
 
     # Strategy 2 Text (Stop Trading message when inactive)
     if not state["s2_active"] or state["s2_pred"] == "WAIT":
@@ -198,14 +204,26 @@ def fetch_history_records(url):
     return all_records
 
 def update_predictions(state, next_issue_int):
-    # --- Strategy 1 Logic (20th Record) ---
-    target_issue_str = str(next_issue_int - 20) 
-    target_record = next((x for x in state["full_history"] if x["issue"] == target_issue_str), None)
-    
-    if target_record:
-        state["s1_pred"] = target_record["bs"]
-    elif len(state["full_history"]) >= 20:
-        state["s1_pred"] = state["full_history"][19]["bs"]
+    # --- Strategy 1 Logic (3-Circle Continuous Pattern: 3 Big, 3 Small, 3 Big, 3 Small...) ---
+    if not state["s1_active"] and len(state["full_history"]) >= 3:
+        last_3_bs = [x["bs"] for x in state["full_history"][:3]]
+        if last_3_bs == ["Big", "Big", "Big"]:
+            state["s1_active"] = True
+            state["s1_base_pred"] = "Small"  # Starts with 3 Smalls block
+            state["s1_count"] = 0
+            state["s1_level"] = 1
+        elif last_3_bs == ["Small", "Small", "Small"]:
+            state["s1_active"] = True
+            state["s1_base_pred"] = "Big"   # Starts with 3 Bigs block
+            state["s1_count"] = 0
+            state["s1_level"] = 1
+            
+    if state["s1_active"]:
+        block_idx = (state["s1_count"] // 3) % 2
+        if state["s1_base_pred"] == "Small":
+            state["s1_pred"] = "Small" if block_idx == 0 else "Big"
+        else:
+            state["s1_pred"] = "Big" if block_idx == 0 else "Small"
     else:
         state["s1_pred"] = "WAIT"
 
@@ -270,15 +288,15 @@ def process_strategy(state, records):
         s2_res_status = "-"
         
         # --- Evaluate Strategy 1 ---
-        if state["s1_pred"] != "WAIT":
+        if state["s1_active"] and state["s1_pred"] != "WAIT":
             state["stats"]["total_trades"] += 1
             s1_bet = BET_TABLE.get(min(state["s1_level"], 4), 1100)
             if state["s1_pred"] == latest_bs:
                 state["stats"]["s1_win"] += 1
                 state["virtual_balance"] += s1_bet
-                state["s1_level"] = 1 
+                state["s1_level"] = 1 # Reset level on Win, stays active continuously
                 s1_res_status = f"{state['s1_pred']} ✅ WIN"
-                prev_res_text += f"🔹 S1 (20th): ✅ WIN (+₹{s1_bet})\n"
+                prev_res_text += f"🔹 S1 (3-Circle): ✅ WIN (+₹{s1_bet})\n"
             else:
                 state["stats"]["s1_fail"] += 1
                 state["virtual_balance"] -= s1_bet
@@ -287,7 +305,10 @@ def process_strategy(state, records):
                 else:
                     state["s1_level"] = 1
                 s1_res_status = f"{state['s1_pred']} ❌ FAIL"
-                prev_res_text += f"🔹 S1 (20th): ❌ FAIL (-₹{s1_bet})\n"
+                prev_res_text += f"🔹 S1 (3-Circle): ❌ FAIL (-₹{s1_bet})\n"
+            
+            # Increment count for the 3-circle pattern sequence
+            state["s1_count"] += 1
         
         # --- Evaluate Strategy 2 ---
         if state["s2_active"] and state["s2_pred"] != "WAIT":
@@ -315,7 +336,7 @@ def process_strategy(state, records):
         # Add to recent UI history
         state["history"].append({
             "issue": latest_issue[-4:],
-            "s1_pred": state["s1_pred"],
+            "s1_pred": state["s1_pred"] if state["s1_active"] else "WAIT",
             "s1_level": f"L{state['s1_level'] - 1 if s1_res_status != '-' else '-'}", 
             "s1_res": "[green]✅ WIN[/]" if "WIN" in s1_res_status else ("[red]❌ FAIL[/]" if "FAIL" in s1_res_status else "-"),
             "s2_pred": state["s2_pred"] if state["s2_active"] else "WAIT",
@@ -349,8 +370,8 @@ def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
     
     # Strat 1 UI
-    if state["s1_pred"] == "WAIT":
-        s1_ui_text = "[yellow]WAIT[/]"
+    if not state["s1_active"] or state["s1_pred"] == "WAIT":
+        s1_ui_text = "[yellow]WAIT (Waiting for 3 B/S)[/]"
     else:
         s1_color = "dark_orange" if state["s1_pred"] == "Big" else "bright_blue"
         s1_bet = BET_TABLE.get(min(state["s1_level"], 4), 1100)
@@ -367,7 +388,7 @@ def render_game_panel(state):
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
-    panel_text += f"📏 [bold]Strategy 1 (20th):[/] {s1_ui_text}\n"
+    panel_text += f"📏 [bold]Strategy 1 (3-Circle):[/] {s1_ui_text}\n"
     panel_text += f"📐 [bold]Strategy 2 (3-Opp):[/] {s2_ui_text}\n"
     panel_text += f"🕒 [bold]Status:[/] {timer_status}\n\n"
     panel_text += f"💰 [bold green]Virtual Balance:[/] [bold cyan]₹{state['virtual_balance']}[/]\n"

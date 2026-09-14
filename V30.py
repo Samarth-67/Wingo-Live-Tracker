@@ -27,8 +27,8 @@ def create_state(name, interval):
         "interval": interval,
         "last_processed_issue": None,
         
-        # 🔄 Multi-Strategy System
-        "current_strategy": 1,  # 1: Double, 2: Zigzag, 3: Triple, 4: 20th Round
+        # 🔄 Multi-Strategy System (3 Strategies)
+        "current_strategy": 1,  # 1: 2 Circle (2x2), 2: 3 Circle (3x3), 3: 20th Round Mirror
         "strategy_start_time": time.time(),
         "wait_for_trigger": True,
         "pattern_bs": None,
@@ -97,7 +97,7 @@ def send_telegram_signal(state, issue, prev_res_text=None):
     if not target_chat_id: return
 
     game_name = state["name"]
-    strat_names = {1: "2 Circle (2x2)", 2: "Zigzag (1x1)", 3: "3 Circle (3x3)", 4: "20th Round Mirror"}
+    strat_names = {1: "2 Circle (2x2)", 2: "3 Circle (3x3)", 3: "20th Round Mirror"}
     current_s_name = strat_names[state["current_strategy"]]
     
     text = f"🚀 *{game_name} Signal* 🚀\n"
@@ -157,7 +157,8 @@ def fetch_history_records(url, state):
     return all_records
 
 def shift_strategy(state, reason_text):
-    state["current_strategy"] = (state["current_strategy"] % 4) + 1
+    # आता फक्त ३ स्ट्रॅटेजी फिरतील (1 -> 2 -> 3 -> 1)
+    state["current_strategy"] = (state["current_strategy"] % 3) + 1
     state["strategy_start_time"] = time.time()
     state["wait_for_trigger"] = True
     state["pred_bs"] = "WAIT"
@@ -176,10 +177,10 @@ def update_predictions(state, next_issue_int, latest_color):
                 trigger_bs = last_2[0]
                 
                 # पॅटर्न सुरुवात सेट करणे
-                if state["current_strategy"] in [1, 2, 3]:
+                if state["current_strategy"] in [1, 2]:
                     state["pattern_bs"] = "Small" if trigger_bs == "Big" else "Big"
                     state["pattern_count"] = 1
-                elif state["current_strategy"] == 4:
+                elif state["current_strategy"] == 3:
                     if len(state["full_history"]) >= 20:
                         state["pattern_bs"] = state["full_history"][19]["bs"]
                     else:
@@ -192,24 +193,21 @@ def update_predictions(state, next_issue_int, latest_color):
             return
     else:
         # पुढील सिक्वेन्स जनरेट करणे
-        if state["current_strategy"] == 1: # 2 Small 2 Big
+        if state["current_strategy"] == 1: # 2 Circle (2x2)
             if state["pattern_count"] < 2:
                 state["pattern_count"] += 1
             else:
                 state["pattern_bs"] = "Small" if state["pattern_bs"] == "Big" else "Big"
                 state["pattern_count"] = 1
                 
-        elif state["current_strategy"] == 2: # Zigzag
-            state["pattern_bs"] = "Small" if state["pattern_bs"] == "Big" else "Big"
-            
-        elif state["current_strategy"] == 3: # 3 Small 3 Big
+        elif state["current_strategy"] == 2: # 3 Circle (3x3)
             if state["pattern_count"] < 3:
                 state["pattern_count"] += 1
             else:
                 state["pattern_bs"] = "Small" if state["pattern_bs"] == "Big" else "Big"
                 state["pattern_count"] = 1
                 
-        elif state["current_strategy"] == 4: # 20th Round Mirror
+        elif state["current_strategy"] == 3: # 20th Round Mirror
             if len(state["full_history"]) >= 20:
                 state["pattern_bs"] = state["full_history"][19]["bs"]
             else:
@@ -335,7 +333,7 @@ def render_game_panel(state):
     time_left = max(0, int(3600 - (time.time() - state["strategy_start_time"])))
     mins, secs = divmod(time_left, 60)
     
-    strat_names = {1: "2x2 Double", 2: "1x1 Zigzag", 3: "3x3 Triple", 4: "20th Round Mirror"}
+    strat_names = {1: "2x2 Double", 2: "3x3 Triple", 3: "20th Round Mirror"}
     
     if state["wait_for_trigger"]:
         ui_text = "[yellow]WAITING FOR TRIGGER (2 Same)[/]"

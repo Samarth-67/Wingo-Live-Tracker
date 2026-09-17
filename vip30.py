@@ -11,7 +11,6 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
-# दुसऱ्या बॉटचे मूळ डिटेल्स (बदललेले नाहीत)
 TELEGRAM_TOKEN = "8813447942:AAFPBVlFoJnRNBKvCywTx7gSEg8EckzKFDg"
 TARGET_GROUP_ID = "-1004318545622"  # <--- ३० सेकंदाच्या चॅनेल/ग्रुपचा आयडी
 
@@ -28,12 +27,11 @@ def create_state(name, interval):
         "interval": interval,
         "last_processed_issue": None,
         
-        # 🔄 Multi-Strategy System (3 Strategies)
-        "current_strategy": 1,  # 1: 2 Circle (2x2), 2: 3 Circle (3x3), 3: 20th Round Mirror
+        # 🔄 Multi-Strategy System (फक्त 2 Strategies)
+        "current_strategy": 1,  # 1: 20th Round Mirror, 2: Follow Last Trend
         "strategy_start_time": time.time(),
         "wait_for_trigger": True,
         "pattern_bs": None,
-        "pattern_count": 0,
         
         "pred_bs": "WAIT",
         "pred_color": "WAIT",
@@ -98,7 +96,8 @@ def send_telegram_signal(state, issue, prev_res_text=None):
     if not target_chat_id: return
 
     game_name = state["name"]
-    strat_names = {1: "2 Circle (2x2)", 2: "3 Circle (3x3)", 3: "20th Round Mirror"}
+    # फक्त २ स्ट्रॅटेजीची नावे
+    strat_names = {1: "20th Round Mirror", 2: "Follow Last Trend"}
     current_s_name = strat_names[state["current_strategy"]]
     
     text = f"🚀 *{game_name} Signal* 🚀\n"
@@ -158,8 +157,8 @@ def fetch_history_records(url, state):
     return all_records
 
 def shift_strategy(state, reason_text):
-    # आता फक्त ३ स्ट्रॅटेजी फिरतील (1 -> 2 -> 3 -> 1)
-    state["current_strategy"] = (state["current_strategy"] % 3) + 1
+    # आता फक्त २ स्ट्रॅटेजी फिरतील (1 -> 2 -> 1)
+    state["current_strategy"] = (state["current_strategy"] % 2) + 1
     state["strategy_start_time"] = time.time()
     state["wait_for_trigger"] = True
     state["pred_bs"] = "WAIT"
@@ -175,50 +174,36 @@ def update_predictions(state, next_issue_int, latest_color):
             last_2 = [x["bs"] for x in state["full_history"][:2]]
             if last_2[0] == last_2[1]: 
                 state["wait_for_trigger"] = False
-                trigger_bs = last_2[0]
-                
-                # पॅटर्न सुरुवात सेट करणे
-                if state["current_strategy"] in [1, 2]:
-                    state["pattern_bs"] = "Small" if trigger_bs == "Big" else "Big"
-                    state["pattern_count"] = 1
-                elif state["current_strategy"] == 3:
-                    if len(state["full_history"]) >= 20:
-                        state["pattern_bs"] = state["full_history"][19]["bs"]
-                    else:
-                        state["wait_for_trigger"] = True # 20 रेकॉर्ड्स येईपर्यंत थांबेल
         
         if state["wait_for_trigger"]:
             state["pred_bs"] = "WAIT"
             state["pred_color"] = "WAIT"
             state["pred_nums"] = []
             return
-    else:
-        # पुढील सिक्वेन्स जनरेट करणे
-        if state["current_strategy"] == 1: # 2 Circle (2x2)
-            if state["pattern_count"] < 2:
-                state["pattern_count"] += 1
-            else:
-                state["pattern_bs"] = "Small" if state["pattern_bs"] == "Big" else "Big"
-                state["pattern_count"] = 1
-                
-        elif state["current_strategy"] == 2: # 3 Circle (3x3)
-            if state["pattern_count"] < 3:
-                state["pattern_count"] += 1
-            else:
-                state["pattern_bs"] = "Small" if state["pattern_bs"] == "Big" else "Big"
-                state["pattern_count"] = 1
-                
-        elif state["current_strategy"] == 3: # 20th Round Mirror
+            
+    # जर ट्रिगर मिळाला असेल तर पुढील लॉजिक
+    if not state["wait_for_trigger"]:
+        # Strategy 1: 20th Round Mirror
+        if state["current_strategy"] == 1: 
             if len(state["full_history"]) >= 20:
                 state["pattern_bs"] = state["full_history"][19]["bs"]
             else:
                 state["pattern_bs"] = "WAIT"
 
+        # Strategy 2: Follow Last Trend (आलेला ट्रेड कंटिन्यू करणे)
+        elif state["current_strategy"] == 2: 
+            if len(state["full_history"]) >= 1:
+                # 0th index म्हणजे सर्वात नवीन/शेवटचा आलेला निकाल
+                state["pattern_bs"] = state["full_history"][0]["bs"]
+            else:
+                state["pattern_bs"] = "WAIT"
+
+    # Prediction Assign करणे
     if state["pattern_bs"] != "WAIT":
         state["pred_bs"] = state["pattern_bs"]
         state["pred_color"] = "Red" if latest_color == "Green" else "Green"
         
-        # Numbers Mapping
+        # Numbers Mapping (हे जुनेच लॉजिक आहे)
         if state["pred_bs"] == "Big" and state["pred_color"] == "Red":
             state["pred_nums"] = [8, 6]
         elif state["pred_bs"] == "Small" and state["pred_color"] == "Green":
@@ -334,7 +319,8 @@ def render_game_panel(state):
     time_left = max(0, int(3600 - (time.time() - state["strategy_start_time"])))
     mins, secs = divmod(time_left, 60)
     
-    strat_names = {1: "2x2 Double", 2: "3x3 Triple", 3: "20th Round Mirror"}
+    # UI मधील नावे बदलली आहेत
+    strat_names = {1: "20th Mirror", 2: "Follow Trend"}
     
     if state["wait_for_trigger"]:
         ui_text = "[yellow]WAITING FOR TRIGGER (2 Same)[/]"
@@ -376,7 +362,8 @@ if __name__ == "__main__":
     t_list = threading.Thread(target=telegram_listener, daemon=True)
     t_30s = threading.Thread(target=worker_30s, daemon=True)
     
-    t_list.start(); t_30s.start()
+    t_list.start()
+    t_30s.start()
 
     with Live(create_master_ui(), console=console, refresh_per_second=4, screen=False) as live:
         while True:

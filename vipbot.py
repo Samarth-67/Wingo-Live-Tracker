@@ -13,12 +13,13 @@ console = Console()
 
 # --- 🚀 TELEGRAM BOT CONFIGURATION 🚀 ---
 TELEGRAM_TOKEN = "8840557038:AAGEQ4ZwyicaZgkegKuMAg9DxkE_fBzbQvQ"
-TARGET_GROUP_ID = "-5260680634"  
+TARGET_GROUP_ID = "-5260680634"  # <--- नवीन चॅनेल/ग्रुपचा आयडी
 
-# 🔐 सिक्रेट पासवर्ड (30S साठी)
-PASS_30S = "33333"  
-# -----------------------------------------------------------
+# 🔐 सिक्रेट पासवर्ड
+PASS_30S = "11111"  
+# ----------------------------------------
 
+# ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session
 api_session = requests.Session()
 
 def create_state(name, interval):
@@ -27,9 +28,11 @@ def create_state(name, interval):
         "interval": interval,
         "last_processed_issue": None,
         
-        "current_strategy": 1,  # 1: Three Circle (Reverse), 2: Trend Follower
+        # 🔄 Multi-Strategy System (फक्त 2 Strategies)
+        "current_strategy": 1,  # 1: 20th Round Mirror, 2: Follow Last Trend
         "strategy_start_time": time.time(),
-        "locked_pred": None, 
+        "wait_for_trigger": True,
+        "pattern_bs": None,
         
         "pred_bs": "WAIT",
         "pred_color": "WAIT",
@@ -40,7 +43,8 @@ def create_state(name, interval):
         "history": [],
         "stats": {"win": 0, "fail": 0, "total_trades": 0},
         "is_running": False,        
-        "active_chat_id": TARGET_GROUP_ID,    
+        "active_chat_id": None,    
+        "live_records": []
     }
 
 state_30s = create_state("WinGo 30S", "30S")
@@ -54,16 +58,6 @@ def send_telegram_message_direct(chat_id, text):
         except Exception:
             pass
     threading.Thread(target=_send, daemon=True).start()
-
-def shift_strategy(state, reason_text):
-    state["current_strategy"] = 2 if state["current_strategy"] == 1 else 1
-    state["strategy_start_time"] = time.time()
-    state["pred_bs"] = "WAIT"
-    state["locked_pred"] = None
-    state["level"] = 1
-    
-    if state["is_running"]:
-        send_telegram_message_direct(TARGET_GROUP_ID, f"⚠️ *STRATEGY SHIFTED!*\n{reason_text}\n➡️ Now using Strategy {state['current_strategy']}")
 
 def telegram_listener():
     offset = 0
@@ -82,82 +76,63 @@ def telegram_listener():
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == PASS_30S:
                             state_30s["is_running"] = True
-                            send_telegram_message_direct(chat_id, f"✅ *[30S Dual-Strategy Bot]* Activated!")
+                            state_30s["active_chat_id"] = chat_id
+                            send_telegram_message_direct(chat_id, f"✅ *[Multi-Strategy Auto-Bot]* Activated! Live Prediction is ON.")
+                        else:
+                            send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
+                            
                     elif text.startswith("/stop"):
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == PASS_30S:
                             state_30s["is_running"] = False
-                            send_telegram_message_direct(chat_id, "🛑 *[30S Bot] Stopped Successfully!*")
-                    elif text.startswith("/reset"):
-                        parts = text.split()
-                        if len(parts) == 2 and parts[1] == PASS_30S:
-                            state_30s["level"] = 1
-                            state_30s["pred_bs"] = "WAIT"
-                            state_30s["locked_pred"] = None
-                            send_telegram_message_direct(chat_id, "🔄 *30S Bot Reset Successfully!*")
-                    elif text.startswith("/switch"):
-                        parts = text.split()
-                        if len(parts) == 2 and parts[1] == PASS_30S:
-                            shift_strategy(state_30s, "🔄 *Manual Switch Requested!*")
+                            send_telegram_message_direct(chat_id, "🛑 *Bot Stopped Successfully!*")
+                        else:
+                            send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
         except Exception:
             pass
         time.sleep(2)
-
-def get_next_issue(issue_str):
-    if issue_str.isdigit():
-        return str(int(issue_str) + 1)
-    match = re.search(r'(\d+)$', issue_str)
-    if match:
-        suffix = match.group(1)
-        next_suffix = str(int(suffix) + 1).zfill(len(suffix))
-        return issue_str[:match.start()] + next_suffix
-    return issue_str + " (Next)"
-
-def extract_digits(s):
-    digits = ''.join(filter(str.isdigit, str(s)))
-    return int(digits) if digits else 0
 
 def send_telegram_signal(state, issue, prev_res_text=None):
     target_chat_id = TARGET_GROUP_ID
     if not target_chat_id: return
 
     game_name = state["name"]
-    strat_names = {1: "Three Circle (Reverse)", 2: "Trend Follower"}
+    strat_names = {1: "20th Round Mirror", 2: "Follow Last Trend"}
     current_s_name = strat_names[state["current_strategy"]]
     
     text = f"🚀 *{game_name} Signal* 🚀\n"
     text += f"⚙️ *Active Strategy:* {state['current_strategy']} - {current_s_name}\n\n"
     
     if prev_res_text:
-        text += f"📊 *मागील निकाल (Previous Result):*\n{prev_res_text}\n"
+        text += f"📊 *मागील निकाल:*\n"
+        text += f"{prev_res_text}\n"
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
         
     text += f"🎟️ *Next Issue:* `{issue}`\n\n"
     
-    if state["pred_bs"] == "WAIT":
-        if state["current_strategy"] == 1:
-            text += f"⏳ *Waiting for pattern...*\n"
-            text += f"(_Need 3 same results in a row_)\n\n"
-        else:
-            text += f"⏳ *Analyzing next prediction...*\n\n"
+    if state["wait_for_trigger"] or state["pred_bs"] == "WAIT":
+        text += f"⏳ Waiting for Trigger (2 Same Big/Small)...\n\n"
     else:
         icon = "🟠 Big" if state["pred_bs"] == "Big" else "🔵 Small"
         color_icon = "🟢 Green" if state["pred_color"] == "Green" else "🔴 Red"
-        text += f"🎯 *Prediction:* *{icon}* | *{color_icon}* \n"
+        nums_str = ", ".join(map(str, state["pred_nums"]))
+        text += f"🎯 *Prediction:* *{icon}* | *{color_icon}* | 🔢 *{nums_str}*\n"
         text += f"💰 *Level:* L{state['level']}\n\n"
         
-    text += f"💡 _Auto Prediction Bot is ON._"
+    text += f"💡 _Bet according to your level._"
+    
     send_telegram_message_direct(target_chat_id, text)
 
-def fetch_history_records(url):
+def fetch_history_records(url, state):
     headers = {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json, text/plain, */*",
+        "Referer": "https://draw.ar-lottery01.com/",
     }
     all_records = []
     try:
         params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
-        response = api_session.get(url, headers=headers, params=params, timeout=5)
+        response = api_session.get(url, headers=headers, params=params, timeout=3)
         if response.status_code == 200:
             data = response.json()
             if "data" in data and isinstance(data["data"], list): all_records.extend(data["data"])
@@ -165,108 +140,134 @@ def fetch_history_records(url):
             elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: all_records.extend(data["data"]["list"])
     except Exception:
         pass
+        
+    if len(all_records) <= 20:
+        for p in [2, 3]:
+            try:
+                params = {"pageSize": 20, "pageNo": p, "ts": int(time.time() * 1000)}
+                response = api_session.get(url, headers=headers, params=params, timeout=2)
+                if response.status_code == 200:
+                    data = response.json()
+                    if "data" in data and isinstance(data["data"], list): all_records.extend(data["data"])
+                    elif "list" in data and isinstance(data["list"], list): all_records.extend(data["list"])
+                    elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: all_records.extend(data["data"]["list"])
+            except Exception:
+                pass
+            
     return all_records
 
-def update_predictions(state):
-    # प्रेडिक्शन नेहमी सॉर्ट केलेल्या History वरूनच घेतले जाईल
-    if state["current_strategy"] == 1:
-        if state["level"] == 1:
-            if len(state["full_history"]) >= 3:
-                h1 = state["full_history"][0]["bs"] # Latest
-                h2 = state["full_history"][1]["bs"] # Previous
-                h3 = state["full_history"][2]["bs"] # 2nd Previous
-                
-                # ३ समान रिझल्ट आल्यास विरुद्ध प्रेडिक्शन
-                if h1 == "Big" and h2 == "Big" and h3 == "Big":
-                    state["pred_bs"] = "Small"
-                    state["locked_pred"] = "Small"
-                elif h1 == "Small" and h2 == "Small" and h3 == "Small":
-                    state["pred_bs"] = "Big"
-                    state["locked_pred"] = "Big"
-                else:
-                    state["pred_bs"] = "WAIT"
-                    state["locked_pred"] = None
-            else:
-                state["pred_bs"] = "WAIT"
-        else:
-            state["pred_bs"] = state.get("locked_pred", "WAIT")
-            
-    elif state["current_strategy"] == 2:
-        if len(state["full_history"]) > 0:
-            state["pred_bs"] = state["full_history"][0]["bs"]
+def shift_strategy(state, reason_text):
+    state["current_strategy"] = (state["current_strategy"] % 2) + 1
+    state["strategy_start_time"] = time.time()
+    state["wait_for_trigger"] = True
+    state["pred_bs"] = "WAIT"
+    state["level"] = 1
+    
+    if state["is_running"]:
+        send_telegram_message_direct(TARGET_GROUP_ID, f"⚠️ *STRATEGY SHIFTED!*\n{reason_text}\n➡️ Now using Strategy {state['current_strategy']}")
 
-    if state["pred_bs"] == "Big":
-        state["pred_color"] = "Green"
-    elif state["pred_bs"] == "Small":
-        state["pred_color"] = "Red"
-    else:
-        state["pred_color"] = "WAIT"
+def extract_digits(s):
+    digits = ''.join(filter(str.isdigit, str(s)))
+    return int(digits) if digits else 0
+
+def update_predictions(state, next_issue_int, latest_color):
+    if state["wait_for_trigger"]:
+        if len(state["full_history"]) >= 2:
+            last_2 = [x["bs"] for x in state["full_history"][:2]]
+            if last_2[0] == last_2[1]: 
+                state["wait_for_trigger"] = False
+        
+        if state["wait_for_trigger"]:
+            state["pred_bs"] = "WAIT"
+            state["pred_color"] = "WAIT"
+            state["pred_nums"] = []
+            return
+            
+    if not state["wait_for_trigger"]:
+        if state["current_strategy"] == 1: 
+            if len(state["full_history"]) >= 20:
+                state["pattern_bs"] = state["full_history"][19]["bs"]
+            else:
+                state["pattern_bs"] = "WAIT"
+
+        elif state["current_strategy"] == 2: 
+            if len(state["full_history"]) >= 1:
+                state["pattern_bs"] = state["full_history"][0]["bs"]
+            else:
+                state["pattern_bs"] = "WAIT"
+
+    if state["pattern_bs"] != "WAIT":
+        state["pred_bs"] = state["pattern_bs"]
+        state["pred_color"] = "Red" if latest_color == "Green" else "Green"
+        
+        if state["pred_bs"] == "Big" and state["pred_color"] == "Red":
+            state["pred_nums"] = [8, 6]
+        elif state["pred_bs"] == "Small" and state["pred_color"] == "Green":
+            state["pred_nums"] = [1, 3]
+        elif state["pred_bs"] == "Big" and state["pred_color"] == "Green":
+            state["pred_nums"] = [7, 9]
+        elif state["pred_bs"] == "Small" and state["pred_color"] == "Red":
+            state["pred_nums"] = [2, 4]
+        else:
+            state["pred_nums"] = []
 
 def process_strategy(state, records):
     if not records: return False
+    state["live_records"] = records[:5]
     
-    # 1. API चा डेटा आधी स्वतःच्या History मध्ये सेव्ह करणे
-    added_new = False
     existing_issues = {x["issue"] for x in state["full_history"]}
-    
+    added_new = False
     for rec in records:
-        iss = str(rec.get("issueNumber") or rec.get("issue") or "").strip()
-        num_str = str(rec.get("number") or rec.get("drawNumber") or "").strip()
-        
+        iss = str(rec.get("issueNumber") or rec.get("issue") or "")
+        num_str = str(rec.get("number") or rec.get("drawNumber") or "")
         if iss and num_str.isdigit() and iss not in existing_issues:
             n_val = int(num_str)
             state["full_history"].append({
                 "issue": iss, 
                 "bs": "Big" if n_val >= 5 else "Small", 
                 "color": "Green" if n_val in [1, 3, 5, 7, 9] else "Red",
-                "num": n_val
+                "num": num_str
             })
+            existing_issues.add(iss)
             added_new = True
-
-    if not added_new and state["last_processed_issue"] is not None:
-        return False
                 
-    # 2. क्रमाने सॉर्ट करणे (Source of Truth) - ज्यामुळे ३ रिझल्ट ओळखण्यात चूक होणार नाही
     state["full_history"].sort(key=lambda x: extract_digits(x["issue"]), reverse=True)
     state["full_history"] = state["full_history"][:60] 
 
     if len(state["full_history"]) == 0:
         return False
 
-    latest_issue = state["full_history"][0]["issue"]
-    latest_bs = state["full_history"][0]["bs"]
-    latest_color = state["full_history"][0]["color"]
-    latest_num = state["full_history"][0]["num"]
+    latest_item = state["full_history"][0]
+    latest_issue = latest_item["issue"]
+    latest_number_str = latest_item["num"]
+    num_int = int(latest_number_str)
+    latest_bs = latest_item["bs"]
+    latest_color = latest_item["color"]
 
-    # 3. बॉट सुरु झाल्यावर पहिली वेळ
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
-        update_predictions(state)
-        next_iss = get_next_issue(latest_issue)
-        if state["is_running"]: send_telegram_signal(state, next_iss)
+        next_issue_int = extract_digits(latest_issue) + 1
+        update_predictions(state, next_issue_int, latest_color)
+        if state["is_running"]: send_telegram_signal(state, str(next_issue_int))
         return True
 
-    # 4. नवीन रिझल्ट आल्यास
-    if latest_issue != state["last_processed_issue"]:
-        if extract_digits(latest_issue) <= extract_digits(state["last_processed_issue"]): 
-            return False  
+    if state["last_processed_issue"] != latest_issue:
+        if extract_digits(latest_issue) <= extract_digits(state["last_processed_issue"]): return False  
 
         if time.time() - state["strategy_start_time"] >= 3600:
             shift_strategy(state, "⏳ 1 Hour Completed.")
 
-        prev_res_text = f"🎯 Result: *{latest_num}* ({latest_bs} | {latest_color})\n"
+        prev_res_text = f"🎯 Result: *{latest_number_str}* ({latest_bs} | {latest_color})\n"
         res_status = "-"
         current_logged_level = state["level"]
 
-        # रिझल्ट तपासणी
-        if state["pred_bs"] != "WAIT":
+        if not state["wait_for_trigger"] and state["pred_bs"] != "WAIT":
             state["stats"]["total_trades"] += 1
             if state["pred_bs"] == latest_bs:
                 state["stats"]["win"] += 1
                 res_status = f"{state['pred_bs']} ✅ WIN"
                 prev_res_text += f"🔹 Match: ✅ WIN\n"
                 state["level"] = 1
-                state["locked_pred"] = None
             else:
                 state["stats"]["fail"] += 1
                 res_status = f"{state['pred_bs']} ❌ FAIL"
@@ -279,47 +280,45 @@ def process_strategy(state, records):
                 
         state["history"].append({
             "issue": str(extract_digits(latest_issue))[-4:],
-            "pred": state["pred_bs"],
+            "pred": state["pred_bs"] if not state["wait_for_trigger"] else "WAIT",
             "level": f"L{current_logged_level}", 
             "res": "[green]✅ WIN[/]" if "WIN" in res_status else ("[red]❌ FAIL[/]" if "FAIL" in res_status else "-")
         })
         if len(state["history"]) > 4: state["history"].pop(0)
 
-        # पुढील प्रेडिक्शन अपडेट करणे
-        update_predictions(state)
-        next_iss = get_next_issue(latest_issue)
+        next_issue_int = extract_digits(latest_issue) + 1
+        update_predictions(state, next_issue_int, latest_color)
 
         if state["is_running"]:
-            if prev_res_text == f"🎯 Result: *{latest_num}* ({latest_bs} | {latest_color})\n":
+            if prev_res_text == f"🎯 Result: *{latest_number_str}* ({latest_bs} | {latest_color})\n":
                 prev_res_text = None 
-            send_telegram_signal(state, next_iss, prev_res_text)
+            send_telegram_signal(state, str(next_issue_int), prev_res_text)
 
         state["last_processed_issue"] = latest_issue
         return True
-        
     return False
 
 def worker_30s():
-    url = "https://draw.ar-lottery01.com/WinGo/WinGo_30s/GetHistoryIssuePage.json"
+    url = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
     while True:
         try:
-            records = fetch_history_records(url)
+            records = fetch_history_records(url, state_30s)
             if records:
                 process_strategy(state_30s, records)
         except Exception:
             pass
-        time.sleep(1.5)
+        time.sleep(1)
 
 def render_game_panel(state):
-    next_iss = get_next_issue(state["last_processed_issue"]) if state["last_processed_issue"] else "Wait"
+    next_iss = str(extract_digits(state["last_processed_issue"]) + 1) if state["last_processed_issue"] else "Next"
     
     time_left = max(0, int(3600 - (time.time() - state["strategy_start_time"])))
     mins, secs = divmod(time_left, 60)
     
-    strat_names = {1: "Three Circle (Reverse)", 2: "Trend Follower"}
+    strat_names = {1: "20th Mirror", 2: "Follow Trend"}
     
-    if state["pred_bs"] == "WAIT":
-        ui_text = "[yellow]WAITING FOR 3 SAME[/]" if state["current_strategy"] == 1 else "[yellow]WAITING[/]"
+    if state["wait_for_trigger"]:
+        ui_text = "[yellow]WAITING FOR TRIGGER (2 Same)[/]"
     else:
         s_color = "dark_orange" if state["pred_bs"] == "Big" else "bright_blue"
         c_color = "green" if state["pred_color"] == "Green" else "red"
@@ -345,12 +344,12 @@ def render_game_panel(state):
             p = f"{h['pred'][0]}({h['level']})" if h['pred'] != "WAIT" else "-"
             hist_table.add_row(str(h["issue"]), p, str(h["res"])[0:13])
             
-    return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']} - Auto Bot[/]", border_style="cyan", width=78)
+    return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']} - Multi Strat[/]", border_style="cyan", width=78)
 
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S SMART BOT[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S SUPERFAST MULTI-STRATEGY BOT[/bold yellow]\n"),
         Align.center(p_30s)
     )
 
@@ -358,7 +357,8 @@ if __name__ == "__main__":
     t_list = threading.Thread(target=telegram_listener, daemon=True)
     t_30s = threading.Thread(target=worker_30s, daemon=True)
     
-    t_list.start(); t_30s.start()
+    t_list.start()
+    t_30s.start()
 
     with Live(create_master_ui(), console=console, refresh_per_second=4, screen=False) as live:
         while True:

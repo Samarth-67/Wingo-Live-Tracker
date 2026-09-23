@@ -59,8 +59,8 @@ state_30s = create_state("WinGo 30S", "30S")
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
     
-    # 🔗 रजिस्ट्रेशन लिंक आणि डिस्क्रिप्शन बॉक्स काढून टाकला आहे
-    final_text = text 
+    # Telegram च्या प्रत्येक मेसेजमध्ये फक्त लिंक दिसेल, कोणताही एक्सट्रा डिस्क्रिप्शन बॉक्स नाही
+    final_text = f"{text}\n\n{REG_LINK}"
     
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"

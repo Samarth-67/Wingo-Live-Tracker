@@ -17,6 +17,9 @@ TARGET_GROUP_ID = "-5356408789"  # <--- नवीन चॅनेल/ग्र�
 
 # 🔐 सिक्रेट पासवर्ड
 PASS_30S = "11111"  
+
+# 🔗 दमन रजिस्ट्रेशन लिंक (ही लिंक प्रत्येक टेलिग्राम मेसेजमध्ये खाली येईल)
+DAMAN_REG_LINK = "https://damangames.in/" # <--- इथे तुमची दमनची खरी लिंक टाका
 # ----------------------------------------
 
 # ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session
@@ -52,7 +55,13 @@ def send_telegram_message_direct(chat_id, text):
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
-            api_session.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=3)
+            api_session.post(url, json={
+                "chat_id": chat_id, 
+                "text": text, 
+                "parse_mode": "Markdown", 
+                "disable_web_page_preview": True,
+                "link_preview_options": {"is_disabled": True}  # 🚫 लिंकचे डिस्क्रिप्शन/प्रीव्ह्यू बंद करण्यासाठी
+            }, timeout=3)
         except Exception:
             pass
     threading.Thread(target=_send, daemon=True).start()
@@ -75,7 +84,7 @@ def telegram_listener():
                         if len(parts) == 2 and parts[1] == PASS_30S:
                             state_30s["is_running"] = True
                             state_30s["active_chat_id"] = chat_id
-                            send_telegram_message_direct(chat_id, f"✅ *[Trend & 4-Level Bot]* Activated! Live Prediction is ON.")
+                            send_telegram_message_direct(chat_id, f"✅ *[Trend & 4-Level Bot]* Activated! Live Prediction is ON.\n\n🔗 *Register:* {DAMAN_REG_LINK}")
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                             
@@ -115,7 +124,10 @@ def send_telegram_signal(state, issue, prev_res_text=None):
         text += f"🎯 *Prediction:* *{icon}* | *{color_icon}* | 🔢 *{nums_str}*\n"
         text += f"💰 *Level:* L{state['level']} (Block Base: L{state['block_base_level']})\n\n"
         
-    text += f"💡 _Bet according to your level._"
+    text += f"💡 _Bet according to your level._\n\n"
+    
+    # 🔗 फक्त लिंक पाठवली जाईल (कोणतेही एक्स्ट्रा डिस्क्रिप्टिव्ह टेक्स्ट नसेल)
+    text += f"🔗 *Register Link:* {DAMAN_REG_LINK}"
     
     send_telegram_message_direct(target_chat_id, text)
 
@@ -160,7 +172,6 @@ def update_predictions(state, next_issue_int, latest_color):
     if state["wait_for_trigger"]:
         if len(state["full_history"]) >= 2:
             last_2 = [x["bs"] for x in state["full_history"][:2]]
-            # बिग-बिग किंवा स्मॉल-स्मॉल मॅच झाल्यावर प्रेडिक्शन चालू होईल
             if last_2[0] == last_2[1]:
                 state["wait_for_trigger"] = False
                 state["level"] = state["block_base_level"]
@@ -171,7 +182,6 @@ def update_predictions(state, next_issue_int, latest_color):
             state["pred_nums"] = []
             return
 
-    # Follow Last Trend: मागील निकाल जसा आहे तसाच पुढचा प्रेडिक्ट करा
     if len(state["full_history"]) >= 1:
         state["pred_bs"] = state["full_history"][0]["bs"]
     else:
@@ -243,7 +253,6 @@ def process_strategy(state, records):
                 state["stats"]["win"] += 1
                 res_status = f"{state['pred_bs']} ✅ WIN"
                 prev_res_text += f"🔹 Match: ✅ WIN\n"
-                # WIN झाल्यास लेव्हल आणि ब्लॉक बेस पुन्हा 1 वर रीसेट होईल
                 state["level"] = 1
                 state["block_base_level"] = 1
             else:
@@ -252,14 +261,13 @@ def process_strategy(state, records):
                 prev_res_text += f"🔹 Match: ❌ FAIL\n"
                 state["level"] += 1
 
-                # जर सध्याच्या ब्लॉकच्या ४ लेव्हल्स संपल्या (उदा. L4, L8, L12...) तर थांबून ट्रिगरची वाट पाहा
                 if state["level"] > state["block_base_level"] + 3:
                     prev_res_text += f"⚠️ Block of 4 Levels Failed! Waiting for Trigger..."
-                    state["block_base_level"] += 4  # पुढील राउंड ४ लेव्हलने पुढे जाईल (उदा. L5, L9 इ.)
+                    state["block_base_level"] += 4
                     state["wait_for_trigger"] = True
                     state["pred_bs"] = "WAIT"
                     if state["is_running"]:
-                        send_telegram_message_direct(TARGET_GROUP_ID, f"🚨 *4 Levels Completed/Failed!* Bot paused. Waiting for Big-Big / Small-Small trigger to start next round at L{state['block_base_level']}...")
+                        send_telegram_message_direct(TARGET_GROUP_ID, f"🚨 *4 Levels Completed/Failed!* Bot paused. Waiting for Big-Big / Small-Small trigger to start next round at L{state['block_base_level']}...\n\n🔗 *Register Link:* {DAMAN_REG_LINK}")
                 
         state["history"].append({
             "issue": str(extract_digits(latest_issue))[-4:],

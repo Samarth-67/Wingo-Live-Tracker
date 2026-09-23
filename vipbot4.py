@@ -33,12 +33,13 @@ def create_state(name, interval):
         "last_processed_issue": None,
         
         # 🔄 Strategy Variables
-        "current_strategy": 1,         # 1: Opposite (S-S-B-B-S-S), 2: Trend Follow
+        "current_strategy": 1,         # 1: Opposite Pair (S-S-B-B), 2: Trend Follow
         "strategy_start_time": time.time(),
         "wait_for_trigger": True,
         "trigger_type": None,          
         "last_trigger_issue": None,    
         
+        "pattern_index": 0,            # 👈 NEW: पॅटर्न सलग चालवण्यासाठी
         "pred_bs": "WAIT",
         "pred_color": "WAIT",
         "pred_nums": [],
@@ -122,7 +123,7 @@ def send_telegram_signal(state, issue, prev_res_text=None):
     if not target_chat_id: return
 
     game_name = state["name"]
-    strat_name = "Opposite Pattern" if state["current_strategy"] == 1 else "Trend Following"
+    strat_name = "Pair Pattern (S-S-B-B)" if state["current_strategy"] == 1 else "Trend Following"
     
     text = f"🚀 <b>{game_name} Signal</b> 🚀\n"
     text += f"⚙️ <b>Strategy {state['current_strategy']}:</b> {strat_name}\n\n"
@@ -175,6 +176,7 @@ def check_time_shuffle(state):
         state["strategy_start_time"] = time.time()
         state["wait_for_trigger"] = True
         state["level"] = 1
+        state["pattern_index"] = 0
         if state["is_running"]:
             msg = f"⏱ <b>1 Hour Completed!</b> Strategy Auto-Shuffled from S{old_strat} to S{state['current_strategy']}.\nWaiting for new trigger..."
             send_telegram_message_direct(TARGET_GROUP_ID, msg)
@@ -192,20 +194,22 @@ def update_predictions(state, next_issue_int, latest_color):
                 state["trigger_type"] = last_2[0]
                 state["last_trigger_issue"] = last_2_issues[0]
                 state["level"] = 1
+                state["pattern_index"] = 0 # 👈 नवीन ट्रिगर मिळताच पॅटर्न 0 पासून सुरू
         
         if state["wait_for_trigger"]:
             state["pred_bs"] = "WAIT"
             return
 
-    # Strategy 1: Opposite Strategy (2 Small, 2 Big, 2 Small)
+    # Strategy 1: Strict Pair Pattern (2 Small, 2 Big)
     if state["current_strategy"] == 1:
         if state["trigger_type"] == "Big":
-            sequence = ["Small", "Small", "Big", "Big", "Small", "Small"]
+            sequence = ["Small", "Small", "Big", "Big"] # 👈 हा लूप गोल गोल फिरत राहील
         else:
-            sequence = ["Big", "Big", "Small", "Small", "Big", "Big"]
+            sequence = ["Big", "Big", "Small", "Small"] # 👈 हा लूप गोल गोल फिरत राहील
             
         if state["level"] <= 6:
-            state["pred_bs"] = sequence[state["level"] - 1]
+            # pattern_index % 4 केल्यामुळे तो 0,1,2,3 पुन्हा 0,1,2,3 असा फिरत राहील
+            state["pred_bs"] = sequence[state["pattern_index"] % 4]
         else:
             state["pred_bs"] = "WAIT"
 
@@ -267,23 +271,27 @@ def process_strategy(state, records):
             if state["pred_bs"] == latest_bs:
                 state["stats"]["win"] += 1
                 res_status = f"{state['pred_bs']} ✅ WIN"
-                # WIN झाल्यावर थांबणार नाही, प्रेडिक्शन कंटिन्यू राहील
                 prev_res_text += f"🔹 Match: ✅ WIN (L{state['level']})\n🔄 <b>Continuing Pattern...</b>\n"
+                
                 state["level"] = 1
-                # state["wait_for_trigger"] = True <--- ही ओळ काढून टाकली आहे, त्यामुळे बॉट मधी थांबणार नाही.
+                state["pattern_index"] += 1 # 👈 WIN झाल्यावरही पॅटर्न पुढे जाईल (त्यामुळे ४ वेळा Small येणार नाही)
+                
             else:
                 state["stats"]["fail"] += 1
                 res_status = f"{state['pred_bs']} ❌ FAIL"
                 prev_res_text += f"🔹 Match: ❌ FAIL\n"
+                
                 state["level"] += 1
+                state["pattern_index"] += 1 # 👈 FAIL झाल्यावरही पॅटर्न पुढे जाईल
 
-                # ६ वी लेव्हल फेल केल्यास स्ट्रॅटेजी स्विच करणे आणि थांबणे
+                # ६ वी लेव्हल फेल केल्यास स्ट्रॅटेजी स्विच करणे
                 if state["level"] > 6:
                     old_strat = state["current_strategy"]
                     state["current_strategy"] = 2 if state["current_strategy"] == 1 else 1
                     state["strategy_start_time"] = time.time()
                     state["wait_for_trigger"] = True
                     state["level"] = 1
+                    state["pattern_index"] = 0
                     
                     prev_res_text += f"\n⚠️ <b>Level 6 Failed!</b> Switching Strategy from S{old_strat} to S{state['current_strategy']}.\n⏳ Waiting for New Trigger..."
 
@@ -328,7 +336,7 @@ def render_game_panel(state):
         ui_text = f"[{s_color}]{state['pred_bs']}[/] | Level: L{state['level']} (Max: L6)"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
-    strat_name = "Opposite" if state["current_strategy"] == 1 else "Trend Follow"
+    strat_name = "S-S-B-B Pattern" if state["current_strategy"] == 1 else "Trend Follow"
     
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
     panel_text += f"⚙️ [bold]Strategy {state['current_strategy']}:[/] {strat_name}\n"

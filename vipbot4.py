@@ -14,7 +14,7 @@ console = Console()
 # --- 🚀 NEW TELEGRAM BOT CONFIGURATION 🚀 ---
 TELEGRAM_TOKEN = "8966011835:AAG48y7RE27x2UkNB68T_7GwdCRKRJe_BpA"
 
-# Telegram Channel ID (सामान्यतः चॅनेल आयडी -100 ने सुरू होतो)
+# Telegram Channel ID
 TARGET_GROUP_ID = "-1005453711390"  
 
 REG_LINK = "https://www.DamanClub.win/#/register?invitationCode=1614313895334"
@@ -36,8 +36,8 @@ def create_state(name, interval):
         "current_strategy": 1,         # 1: Opposite (S-S-B-B-S-S), 2: Trend Follow
         "strategy_start_time": time.time(),
         "wait_for_trigger": True,
-        "trigger_type": None,          # "Big" किंवा "Small"
-        "last_trigger_issue": None,    # जुन्या ट्रिगरवर पुन्हा प्रेडिक्शन न होण्यासाठी
+        "trigger_type": None,          
+        "last_trigger_issue": None,    
         
         "pred_bs": "WAIT",
         "pred_color": "WAIT",
@@ -47,7 +47,7 @@ def create_state(name, interval):
         "full_history": [], 
         "history": [],
         "stats": {"win": 0, "fail": 0, "total_trades": 0},
-        "is_running": True,            # 🟢 बाय-डिफॉल्ट AUTO-START चालू केले आहे
+        "is_running": True,            
         "active_chat_id": None,    
         "live_records": [],
         "last_tg_status": "Ready"
@@ -58,7 +58,6 @@ state_30s = create_state("WinGo 30S", "30S")
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
     
-    # प्रत्येक मेसेजच्या शेवटी HTML फॉरमॅटमध्ये रजिस्ट्रेशन लिंक ॲड करणे
     final_text = f"{text}\n\n🔗 <b>Register Now:</b> <a href='{REG_LINK}'>Click Here to Join Daman</a>"
     
     def _send():
@@ -74,7 +73,6 @@ def send_telegram_message_direct(chat_id, text):
             if res.status_code == 200:
                 state_30s["last_tg_status"] = "✅ Sent Successfully"
             else:
-                # जर -100 आयडी काम करत नसेल तर फक्त मूळ आयडी ट्राय करणे
                 state_30s["last_tg_status"] = f"❌ Error {res.status_code}: {res.text[:30]}"
                 if "-100" in str(chat_id):
                     fallback_id = str(chat_id).replace("-100", "-")
@@ -95,7 +93,6 @@ def telegram_listener():
                 for result in response.json().get("result", []):
                     offset = result["update_id"] + 1
                     
-                    # Group/Private Message किंवा Channel Post दोन्ही डिटेक्ट करणे
                     message = result.get("message") or result.get("channel_post") or {}
                     chat_id = message.get("chat", {}).get("id")
                     text = message.get("text", "").strip()
@@ -165,7 +162,6 @@ def fetch_history_records(url, state):
             elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: all_records.extend(data["data"]["list"])
     except Exception:
         pass
-        
     return all_records
 
 def extract_digits(s):
@@ -173,7 +169,6 @@ def extract_digits(s):
     return int(digits) if digits else 0
 
 def check_time_shuffle(state):
-    # एका तासाने (3600 सेकंद) स्ट्रॅटेजी ऑटोमॅटिक शफल करणे
     if time.time() - state["strategy_start_time"] >= 3600:
         old_strat = state["current_strategy"]
         state["current_strategy"] = 2 if state["current_strategy"] == 1 else 1
@@ -192,7 +187,6 @@ def update_predictions(state, next_issue_int, latest_color):
             last_2 = [x["bs"] for x in state["full_history"][:2]]
             last_2_issues = [x["issue"] for x in state["full_history"][:2]]
             
-            # २ सलग Big किंवा २ सलग Small आल्यावर आणि ते नवीन इश्यू असल्यास ट्रिगर करणे
             if last_2[0] == last_2[1] and last_2_issues[0] != state["last_trigger_issue"]:
                 state["wait_for_trigger"] = False
                 state["trigger_type"] = last_2[0]
@@ -215,7 +209,7 @@ def update_predictions(state, next_issue_int, latest_color):
         else:
             state["pred_bs"] = "WAIT"
 
-    # Strategy 2: Trend Following Strategy (आलेला रिझल्ट फॉलो करणे)
+    # Strategy 2: Trend Following Strategy
     elif state["current_strategy"] == 2:
         if len(state["full_history"]) >= 1:
             state["pred_bs"] = state["full_history"][0]["bs"]
@@ -269,20 +263,21 @@ def process_strategy(state, records):
 
         if not state["wait_for_trigger"] and state["pred_bs"] != "WAIT":
             state["stats"]["total_trades"] += 1
+            
             if state["pred_bs"] == latest_bs:
                 state["stats"]["win"] += 1
                 res_status = f"{state['pred_bs']} ✅ WIN"
-                prev_res_text += f"🔹 Match: ✅ WIN\n"
-                # WIN झाल्यावर पुन्हा नवीन ट्रिगरची वाट पाहणे
+                # WIN झाल्यावर थांबणार नाही, प्रेडिक्शन कंटिन्यू राहील
+                prev_res_text += f"🔹 Match: ✅ WIN (L{state['level']})\n🔄 <b>Continuing Pattern...</b>\n"
                 state["level"] = 1
-                state["wait_for_trigger"] = True
+                # state["wait_for_trigger"] = True <--- ही ओळ काढून टाकली आहे, त्यामुळे बॉट मधी थांबणार नाही.
             else:
                 state["stats"]["fail"] += 1
                 res_status = f"{state['pred_bs']} ❌ FAIL"
                 prev_res_text += f"🔹 Match: ❌ FAIL\n"
                 state["level"] += 1
 
-                # ६ वी लेव्हल फेल केल्यास स्ट्रॅटेजी स्विच करणे
+                # ६ वी लेव्हल फेल केल्यास स्ट्रॅटेजी स्विच करणे आणि थांबणे
                 if state["level"] > 6:
                     old_strat = state["current_strategy"]
                     state["current_strategy"] = 2 if state["current_strategy"] == 1 else 1
@@ -353,12 +348,12 @@ def render_game_panel(state):
             p = f"{h['pred'][0]}({h['level']})" if h['pred'] != "WAIT" else "-"
             hist_table.add_row(str(h["issue"]), p, str(h["res"])[0:13])
             
-    return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]Dual Strategy Auto-Shuffle Bot[/]", border_style="cyan", width=78)
+    return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]Dual Strategy Continuous Bot[/]", border_style="cyan", width=78)
 
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S DUAL STRATEGY BOT[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S DUAL STRATEGY BOT (NON-STOP)[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

@@ -12,13 +12,13 @@ from rich.live import Live
 console = Console()
 
 # --- 🚀 NEW TELEGRAM BOT CONFIGURATION 🚀 ---
-TELEGRAM_TOKEN = "8902202809:AAF126HOa2w4qpardCrA1cqs4vEsGUrzfAY"
-TARGET_GROUP_ID = "-5356408789"  # <--- नवीन चॅनेल/ग्रुपचा आयडी
+TELEGRAM_TOKEN = "8902202809:AAFGYs180CIMct0BgrhCRgVdU3sRU9IvI8g"  # <--- नवीन अपडेट केलेले टोकन
+TARGET_GROUP_ID = "-5356408789"  # <--- चॅनेल आयडी जसाच्या तसा ठेवला आहे
 
 # 🔐 सिक्रेट पासवर्ड
 PASS_30S = "11111"  
 
-# 🔗 दमन रजिस्ट्रेशन लिंक (ही लिंक प्रत्येक टेलिग्राम मेसेजमध्ये खाली येईल)
+# 🔗 दमन रजिस्ट्रेशन लिंक (नवीन लिंक अपडेट केली आहे)
 DAMAN_REG_LINK = "https://www.damanclub.win/#/register?invitationCode=1614313895334"
 # ----------------------------------------
 
@@ -125,8 +125,6 @@ def send_telegram_signal(state, issue, prev_res_text=None):
         text += f"💰 *Level:* L{state['level']} (Block Base: L{state['block_base_level']})\n\n"
         
     text += f"💡 _Bet according to your level._\n\n"
-    
-    # 🔗 फक्त लिंक पाठवली जाईल (कोणतेही एक्स्ट्रा डिस्क्रिप्टिव्ह टेक्स्ट नसेल)
     text += f"🔗 *Register Link:* {DAMAN_REG_LINK}"
     
     send_telegram_message_direct(target_chat_id, text)

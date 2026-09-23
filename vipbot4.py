@@ -33,7 +33,7 @@ def create_state(name, interval):
         "last_processed_issue": None,
         
         # 🔄 Strategy Variables
-        "current_strategy": 1,         # 1: Opposite Pair (S-S-B-B), 2: Trend Follow
+        "current_strategy": 1,       # 1: Opposite Pair (S-S-B-B), 2: Trend Follow
         "strategy_start_time": time.time(),
         "wait_for_trigger": True,
         "trigger_type": None,          
@@ -59,7 +59,8 @@ state_30s = create_state("WinGo 30S", "30S")
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
     
-    final_text = f"{text}\n\n🔗 <b>Register Now:</b> <a href='{REG_LINK}'>Click Here to Join Daman</a>"
+    # 🔗 रजिस्ट्रेशन लिंक आणि डिस्क्रिप्शन बॉक्स काढून टाकला आहे
+    final_text = text 
     
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"

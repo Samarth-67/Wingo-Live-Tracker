@@ -39,7 +39,7 @@ def create_state(name, interval):
         "trigger_type": None,          
         "last_trigger_issue": None,    
         
-        "pattern_index": 0,            # 👈 NEW: पॅटर्न सलग चालवण्यासाठी
+        "pattern_index": 0,             # 👈 NEW: पॅटर्न सलग चालवण्यासाठी
         "pred_bs": "WAIT",
         "pred_color": "WAIT",
         "pred_nums": [],
@@ -59,8 +59,8 @@ state_30s = create_state("WinGo 30S", "30S")
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
     
-    # Telegram च्या प्रत्येक मेसेजमध्ये फक्त लिंक दिसेल, कोणताही एक्सट्रा डिस्क्रिप्शन बॉक्स नाही
-    final_text = f"{text}\n\n{REG_LINK}"
+    # 🔗 प्रत्येक मेसेजमध्ये रजिस्ट्रेशन लिंक जोडली आहे
+    final_text = f"{text}\n\n🔗 <b>Register Link:</b> {REG_LINK}" 
     
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -68,7 +68,7 @@ def send_telegram_message_direct(chat_id, text):
             "chat_id": chat_id,
             "text": final_text,
             "parse_mode": "HTML",
-            "disable_web_page_preview": False
+            "disable_web_page_preview": True  # 🚫 डिस्क्रिप्शन बॉक्स / वेब प्रिव्ह्यू काढून टाकला आहे
         }
         try:
             res = api_session.post(url, json=payload, timeout=5)

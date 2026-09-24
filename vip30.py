@@ -50,10 +50,22 @@ state_30s = create_state("WinGo 30S", "30S")
 
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
+    
+    # 🔗 प्रत्येक मेसेजच्या शेवटी लिंक ॲड करण्याची सेटिंग
+    reg_link = "\n\n🔗 *Register Here:* https://www.DamanClub.win/#/register?invitationCode=1614313895334"
+    if reg_link not in text:
+        text += reg_link
+
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
-            api_session.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=3)
+            # "disable_web_page_preview": True मुळे लिंकच्या खाली डिस्क्रिप्शन बॉक्स दिसणार नाही
+            api_session.post(url, json={
+                "chat_id": chat_id, 
+                "text": text, 
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True
+            }, timeout=3)
         except Exception:
             pass
     threading.Thread(target=_send, daemon=True).start()

@@ -50,10 +50,22 @@ state_30s = create_state("WinGo 30S", "30S")
 
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
+    
+    # 🔗 प्रत्येक मेसेजच्या शेवटी लिंक ॲड करण्याची सेटिंग
+    reg_link = "\n\n🔗 *Register Here:* https://www.DamanClub.win/#/register?invitationCode=1614313895334"
+    if reg_link not in text:
+        text += reg_link
+        
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
-            api_session.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=3)
+            # 'disable_web_page_preview': True केल्यामुळे लिंकच्या खाली येणारा डिस्क्रिप्शन बॉक्स (Link Preview) दिसणार नाही.
+            api_session.post(url, json={
+                "chat_id": chat_id, 
+                "text": text, 
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True
+            }, timeout=3)
         except Exception:
             pass
     threading.Thread(target=_send, daemon=True).start()
@@ -177,13 +189,11 @@ def extract_digits(s):
 
 def update_predictions(state, next_issue_int, latest_color):
     if state["current_strategy"] == 1:
-        # स्ट्रॅटेजी 1: 3 सलग बिग किंवा स्मॉल आल्यावर ट्रिगर होईल आणि त्यानंतर अपोझिट प्रेडिक्शन देईल
         if state["wait_for_trigger"]:
             if len(state["full_history"]) >= 3:
                 last_3 = [x["bs"] for x in state["full_history"][:3]]
                 if last_3[0] == last_3[1] == last_3[2]:
                     state["wait_for_trigger"] = False
-                    # 3 सलग बिग आल्यास स्मॉल, 3 सलग स्मॉल आल्यास बिग प्रेडिक्ट करा
                     state["pred_bs"] = "Small" if last_3[0] == "Big" else "Big"
             
             if state["wait_for_trigger"]:
@@ -192,12 +202,10 @@ def update_predictions(state, next_issue_int, latest_color):
                 state["pred_nums"] = []
                 return
         else:
-            # ट्रिगर झाल्यानंतर पुढील प्रत्येक वेळी अपोझिट प्रेडिक्शन चालू राहील
             latest_bs = state["full_history"][0]["bs"]
             state["pred_bs"] = "Small" if latest_bs == "Big" else "Big"
 
     elif state["current_strategy"] == 2:
-        # स्ट्रॅटेजी 2: Follow Last Trend (जसा मागील निकाल आला तसाच पुढचा प्रेडिक्ट करा)
         state["wait_for_trigger"] = False
         if len(state["full_history"]) >= 1:
             state["pred_bs"] = state["full_history"][0]["bs"]
@@ -280,7 +288,6 @@ def process_strategy(state, records):
                 prev_res_text += f"🔹 Match: ❌ FAIL\n"
                 state["level"] += 1
 
-            # जर सहावी लेव्हल फेल गेली तर स्ट्रॅटेजी बदलली जाईल
             if state["level"] > 6:
                 prev_res_text += f"⚠️ L6 Failed! Switching Strategy..."
                 shift_strategy(state, "🚨 Level 6 Failed!")

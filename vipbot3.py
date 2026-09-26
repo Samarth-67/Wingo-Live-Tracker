@@ -11,15 +11,7 @@ from rich.live import Live
 
 console = Console()
 
-# --- 🚀 NEW TELEGRAM BOT CONFIGURATION 🚀 ---
-TELEGRAM_TOKEN = "8902202809:AAFGYs180CIMct0BgrhCRgVdU3sRU9IvI8g"  # <--- नवीन अपडेट केलेले टोकन
-TARGET_GROUP_ID = "-5356408789"  # <--- चॅनेल आयडी जसाच्या तसा ठेवला आहे
 
-# 🔐 सिक्रेट पासवर्ड
-PASS_30S = "11111"  
-
-# 🔗 दमन रजिस्ट्रेशन लिंक (नवीन लिंक अपडेट केली आहे)
-DAMAN_REG_LINK = "https://www.damanclub.win/#/register?invitationCode=1614313895334"
 # ----------------------------------------
 
 # ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session

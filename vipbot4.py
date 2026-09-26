@@ -11,16 +11,6 @@ from rich.live import Live
 
 console = Console()
 
-# --- 🚀 NEW TELEGRAM BOT CONFIGURATION 🚀 ---
-TELEGRAM_TOKEN = "8966011835:AAG48y7RE27x2UkNB68T_7GwdCRKRJe_BpA"
-
-# Telegram Channel ID
-TARGET_GROUP_ID = "-1005453711390"  
-
-REG_LINK = "https://www.DamanClub.win/#/register?invitationCode=1614313895334"
-
-# 🔐 सिक्रेट पासवर्ड
-PASS_30S = "11111"  
 # ----------------------------------------
 
 # ⚡ फास्ट इंटरनेट कनेक्शनसाठी Session

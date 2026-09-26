@@ -27,12 +27,9 @@ def create_state(name, interval):
         "interval": interval,
         "last_processed_issue": None,
         
-        # 🔄 Multi-Strategy System (3 Strategies)
-        "current_strategy": 1,  # 1: 2 Circle (2x2), 2: 3 Circle (3x3), 3: 20th Round Mirror
-        "strategy_start_time": time.time(),
-        "wait_for_trigger": True,
-        "pattern_bs": None,
-        "pattern_count": 0,
+        # 🔄 New Data: Weightage System
+        "wait_for_trigger": True, # Will wait until 20 records are collected
+        "scores": {"Red": 0, "Green": 0, "Big": 0, "Small": 0},
         
         "pred_bs": "WAIT",
         "pred_color": "WAIT",
@@ -47,7 +44,7 @@ def create_state(name, interval):
         "live_records": []
     }
 
-state_1m = create_state("WinGo 1M", "1M")
+state_1m = create_state("WinGo 1M Weightage", "1M")
 
 def send_telegram_message_direct(chat_id, text):
     if not chat_id: return
@@ -78,7 +75,7 @@ def telegram_listener():
                         if len(parts) == 2 and parts[1] == PASS_1M:
                             state_1m["is_running"] = True
                             state_1m["active_chat_id"] = chat_id
-                            send_telegram_message_direct(chat_id, f"✅ *[1M Multi-Strategy Auto-Bot]* Activated! Live Prediction is ON.")
+                            send_telegram_message_direct(chat_id, f"✅ *[1M Weightage Bot]* Activated! Live Prediction based on 20-Round Stats is ON.")
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
                             
@@ -96,12 +93,10 @@ def telegram_listener():
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == PASS_1M:
                             state_1m["level"] = 1
-                            state_1m["wait_for_trigger"] = True
-                            state_1m["pred_bs"] = "WAIT"
                             state_1m["stats"]["win"] = 0
                             state_1m["stats"]["fail"] = 0
                             state_1m["stats"]["total_trades"] = 0
-                            send_telegram_message_direct(chat_id, "🔄 *1M Bot Reset Successfully!*")
+                            send_telegram_message_direct(chat_id, "🔄 *Bot Stats & Level Reset Successfully!*")
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
         except Exception:
@@ -113,26 +108,33 @@ def send_telegram_signal(state, issue, prev_res_text=None):
     if not target_chat_id: return
 
     game_name = state["name"]
-    strat_names = {1: "2 Circle (2x2)", 2: "3 Circle (3x3)", 3: "20th Round Mirror"}
-    current_s_name = strat_names[state["current_strategy"]]
     
-    text = f"🚀 *{game_name} Multi-Strategy Signal* 🚀\n"
-    text += f"⚙️ *Active Strategy:* {state['current_strategy']} - {current_s_name}\n\n"
+    text = f"🚀 *{game_name} Signal* 🚀\n"
+    text += f"📊 *Strategy:* 20-Round Weightage Data\n\n"
     
     if prev_res_text:
-        text += f"📊 *मागील निकाल (Previous Result):*\n"
+        text += f"📉 *मागील निकाल (Previous Result):*\n"
         text += f"{prev_res_text}\n"
         text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
         
     text += f"🎟️ *Next Issue:* `{issue}`\n\n"
     
     if state["wait_for_trigger"] or state["pred_bs"] == "WAIT":
-        text += f"⏳ Waiting for Trigger (2 Same Big/Small)...\n\n"
+        text += f"⏳ Collecting Data... (Need 20 records)\n\n"
     else:
+        # Show calculated scores so you know WHY the bot gave this signal
+        sc = state["scores"]
+        text += f"🧮 *Weightage Scores:*\n"
+        text += f"🔴 Red: {sc['Red']} | 🟢 Green: {sc['Green']}\n"
+        text += f"🟠 Big: {sc['Big']} | 🔵 Small: {sc['Small']}\n\n"
+
         icon = "🟠 Big" if state["pred_bs"] == "Big" else "🔵 Small"
         color_icon = "🟢 Green" if state["pred_color"] == "Green" else "🔴 Red"
         nums_str = ", ".join(map(str, state["pred_nums"]))
-        text += f"🎯 *Prediction:* *{icon}* | *{color_icon}* | 🔢 *{nums_str}*\n"
+        
+        text += f"🎯 *Final Prediction:* \n"
+        text += f"➡️ *{icon}* | *{color_icon}*\n"
+        text += f"🔢 Numbers: *{nums_str}*\n"
         text += f"💰 *Level:* L{state['level']}\n\n"
         
     text += f"💡 _Auto Prediction Bot is ON._"
@@ -158,7 +160,7 @@ def fetch_history_records(url, state):
         pass
         
     if len(all_records) <= 20:
-        for p in [2, 3]:
+        for p in [2]:
             try:
                 params = {"pageSize": 20, "pageNo": p, "ts": int(time.time() * 1000)}
                 response = api_session.get(url, headers=headers, params=params, timeout=2)
@@ -172,77 +174,65 @@ def fetch_history_records(url, state):
             
     return all_records
 
-def shift_strategy(state, reason_text):
-    # ३ स्ट्रॅटेजी फिरतील (1 -> 2 -> 3 -> 1)
-    state["current_strategy"] = (state["current_strategy"] % 3) + 1
-    state["strategy_start_time"] = time.time()
-    state["wait_for_trigger"] = True
-    state["pred_bs"] = "WAIT"
-    state["level"] = 1
+def update_predictions(state):
+    history = state["full_history"]
     
-    if state["is_running"]:
-        send_telegram_message_direct(TARGET_GROUP_ID, f"⚠️ *STRATEGY SHIFTED!*\n{reason_text}\n➡️ Now using Strategy {state['current_strategy']}")
+    # 20 रेकॉर्ड्सची वाट पाहणे
+    if len(history) < 20:
+        state["wait_for_trigger"] = True
+        state["pred_bs"] = "WAIT"
+        state["pred_color"] = "WAIT"
+        return
 
-def update_predictions(state, next_issue_int, latest_color):
-    if state["wait_for_trigger"]:
-        # ट्रिगर तपासणे: मागील 2 निकाल समान आहेत का?
-        if len(state["full_history"]) >= 2:
-            last_2 = [x["bs"] for x in state["full_history"][:2]]
-            if last_2[0] == last_2[1]: 
-                state["wait_for_trigger"] = False
-                trigger_bs = last_2[0]
-                
-                if state["current_strategy"] in [1, 2]:
-                    state["pattern_bs"] = "Small" if trigger_bs == "Big" else "Big"
-                    state["pattern_count"] = 1
-                elif state["current_strategy"] == 3:
-                    if len(state["full_history"]) >= 20:
-                        state["pattern_bs"] = state["full_history"][19]["bs"]
-                    else:
-                        state["wait_for_trigger"] = True # 20 रेकॉर्ड्स येईपर्यंत थांबेल
+    state["wait_for_trigger"] = False
+
+    # स्कोर्स रिसेट करा
+    sc_red = sc_green = sc_big = sc_small = 0
+
+    # मागील 20 रेकॉर्ड्स लूप करून वेटेज लावणे
+    for i in range(20):
+        record = history[i] # i=0 म्हणजे सर्वात अलीकडील
+        color = record["color"]
+        bs = record["bs"]
+
+        # वेटेज पॉइंट्स (Weightage Allocation)
+        if i < 5:        # डाव 1 ते 5 (Most Recent)
+            weight = 3
+        elif i < 10:     # डाव 6 ते 10
+            weight = 2
+        else:            # डाव 11 ते 20
+            weight = 1
+
+        # कलर स्कोर कॅल्क्युलेशन
+        if color == "Red": sc_red += weight
+        elif color == "Green": sc_green += weight
         
-        if state["wait_for_trigger"]:
-            state["pred_bs"] = "WAIT"
-            state["pred_color"] = "WAIT"
-            state["pred_nums"] = []
-            return
+        # साईज स्कोर कॅल्क्युलेशन
+        if bs == "Big": sc_big += weight
+        elif bs == "Small": sc_small += weight
+
+    # स्कोर्स सेव करणे (UI आणि Telegram साठी)
+    state["scores"] = {"Red": sc_red, "Green": sc_green, "Big": sc_big, "Small": sc_small}
+
+    # --- प्रेडिक्शन ठरवणे (ज्याचा स्कोर जास्त तो जिंकणार) ---
+    pred_color = "Red" if sc_red >= sc_green else "Green"
+    pred_bs = "Big" if sc_big >= sc_small else "Small"
+
+    state["pred_color"] = pred_color
+    state["pred_bs"] = pred_bs
+    
+    # --- नंबर मॅपिंग (Two-Tier Filter) ---
+    if pred_bs == "Big" and pred_color == "Red":
+        state["pred_nums"] = [6, 8]
+    elif pred_bs == "Small" and pred_color == "Green":
+        state["pred_nums"] = [1, 3]
+    elif pred_bs == "Big" and pred_color == "Green":
+        state["pred_nums"] = [7, 9]
+    elif pred_bs == "Small" and pred_color == "Red":
+        state["pred_nums"] = [2, 4]
     else:
-        # पुढील सिक्वेन्स जनरेट करणे
-        if state["current_strategy"] == 1: # 2 Circle (2x2)
-            if state["pattern_count"] < 2:
-                state["pattern_count"] += 1
-            else:
-                state["pattern_bs"] = "Small" if state["pattern_bs"] == "Big" else "Big"
-                state["pattern_count"] = 1
-                
-        elif state["current_strategy"] == 2: # 3 Circle (3x3)
-            if state["pattern_count"] < 3:
-                state["pattern_count"] += 1
-            else:
-                state["pattern_bs"] = "Small" if state["pattern_bs"] == "Big" else "Big"
-                state["pattern_count"] = 1
-                
-        elif state["current_strategy"] == 3: # 20th Round Mirror
-            if len(state["full_history"]) >= 20:
-                state["pattern_bs"] = state["full_history"][19]["bs"]
-            else:
-                state["pattern_bs"] = "WAIT"
+        state["pred_nums"] = []
 
-    if state["pattern_bs"] != "WAIT":
-        state["pred_bs"] = state["pattern_bs"]
-        state["pred_color"] = "Red" if latest_color == "Green" else "Green"
-        
-        # Numbers Mapping
-        if state["pred_bs"] == "Big" and state["pred_color"] == "Red":
-            state["pred_nums"] = [8, 6]
-        elif state["pred_bs"] == "Small" and state["pred_color"] == "Green":
-            state["pred_nums"] = [1, 3]
-        elif state["pred_bs"] == "Big" and state["pred_color"] == "Green":
-            state["pred_nums"] = [7, 9]
-        elif state["pred_bs"] == "Small" and state["pred_color"] == "Red":
-            state["pred_nums"] = [2, 4]
-        else:
-            state["pred_nums"] = []
 
 def process_strategy(state, records):
     if not records: return False
@@ -258,6 +248,7 @@ def process_strategy(state, records):
     latest_bs = "Big" if num_int >= 5 else "Small"
     latest_color = "Green" if num_int in [1, 3, 5, 7, 9] else "Red"
 
+    # नवीन डेटाबेस अपडेट करणे
     existing_issues = {x["issue"] for x in state["full_history"]}
     for rec in records:
         iss = str(rec.get("issueNumber") or rec.get("issue") or "")
@@ -279,7 +270,7 @@ def process_strategy(state, records):
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
         next_issue_int = int(latest_issue) + 1
-        update_predictions(state, next_issue_int, latest_color)
+        update_predictions(state)
         if state["is_running"]: send_telegram_signal(state, str(next_issue_int))
         return True
 
@@ -287,32 +278,28 @@ def process_strategy(state, records):
     if state["last_processed_issue"] != latest_issue:
         if int(latest_issue) <= int(state["last_processed_issue"]): return False  
 
-        # --- १ तास पूर्ण झाल्यास स्ट्रॅटेजी शिफ्ट करणे ---
-        if time.time() - state["strategy_start_time"] >= 3600:
-            shift_strategy(state, "⏳ 1 Hour Completed.")
-
         prev_res_text = f"🎯 Result: *{latest_number_str}* ({latest_bs} | {latest_color})\n"
         res_status = "-"
         current_logged_level = state["level"]
 
-        # --- निकाल तपासणे ---
+        # --- निकाल तपासणे (Level Management based on Size B/S) ---
         if not state["wait_for_trigger"] and state["pred_bs"] != "WAIT":
             state["stats"]["total_trades"] += 1
             if state["pred_bs"] == latest_bs:
                 state["stats"]["win"] += 1
                 res_status = f"{state['pred_bs']} ✅ WIN"
-                prev_res_text += f"🔹 Match: ✅ WIN\n"
+                prev_res_text += f"🔹 B/S Match: ✅ WIN\n"
                 state["level"] = 1
             else:
                 state["stats"]["fail"] += 1
                 res_status = f"{state['pred_bs']} ❌ FAIL"
-                prev_res_text += f"🔹 Match: ❌ FAIL\n"
+                prev_res_text += f"🔹 B/S Match: ❌ FAIL\n"
                 state["level"] += 1
 
-            # --- 6th लेव्हल फेल झाल्यावर तत्काळ स्ट्रॅटेजी बदल ---
-            if state["level"] > 6:
-                prev_res_text += f"⚠️ L6 Failed! Switching Strategy..."
-                shift_strategy(state, "🚨 Level 6 Failed!")
+            # 7th लेव्हल फेल झाल्यावर रिसेट
+            if state["level"] > 7:
+                prev_res_text += f"⚠️ Max Level Reached! Resetting to L1..."
+                state["level"] = 1
                 
         state["history"].append({
             "issue": latest_issue[-4:],
@@ -323,7 +310,7 @@ def process_strategy(state, records):
         if len(state["history"]) > 4: state["history"].pop(0)
 
         next_issue_int = int(latest_issue) + 1
-        update_predictions(state, next_issue_int, latest_color)
+        update_predictions(state)
 
         if state["is_running"]:
             if prev_res_text == f"🎯 Result: *{latest_number_str}* ({latest_bs} | {latest_color})\n":
@@ -345,23 +332,18 @@ def worker_1m():
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
     
-    time_left = max(0, int(3600 - (time.time() - state["strategy_start_time"])))
-    mins, secs = divmod(time_left, 60)
-    
-    strat_names = {1: "2x2 Double", 2: "3x3 Triple", 3: "20th Round Mirror"}
-    
     if state["wait_for_trigger"]:
-        ui_text = "[yellow]WAITING FOR TRIGGER (2 Same)[/]"
+        ui_text = "[yellow]COLLECTING DATA (Wait 20 Rounds)[/]"
     else:
         s_color = "dark_orange" if state["pred_bs"] == "Big" else "bright_blue"
         c_color = "green" if state["pred_color"] == "Green" else "red"
         ui_text = f"[{s_color}]{state['pred_bs']}[/] | [{c_color}]{state['pred_color']}[/] | L{state['level']}"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
+    sc = state["scores"]
     
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
-    panel_text += f"⚙️ [bold]Active Strat:[/] {state['current_strategy']} ({strat_names[state['current_strategy']]})\n"
-    panel_text += f"⏳ [bold]Next Shift In:[/] {mins}m {secs}s\n"
+    panel_text += f"📊 [bold]Weightage Scores:[/] \n[red]R:{sc['Red']}[/] | [green]G:{sc['Green']}[/] | [dark_orange]B:{sc['Big']}[/] | [bright_blue]S:{sc['Small']}[/]\n"
     panel_text += f"📏 [bold]Prediction:[/] {ui_text}\n"
     panel_text += f"🕒 [bold]Status:[/] {timer_status} | Stats - W: [green]{state['stats']['win']}[/] F: [red]{state['stats']['fail']}[/]\n\n"
     
@@ -377,12 +359,12 @@ def render_game_panel(state):
             p = f"{h['pred'][0]}({h['level']})" if h['pred'] != "WAIT" else "-"
             hist_table.add_row(str(h["issue"]), p, str(h["res"])[0:13])
             
-    return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']} - Multi Strat[/]", border_style="cyan", width=78)
+    return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']}[/]", border_style="cyan", width=78)
 
 def create_master_ui():
     p_1m = render_game_panel(state_1m)
     return Group(
-        Align.center("[bold yellow]🚀 1M SUPERFAST MULTI-STRATEGY BOT[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 1M DATA ANALYTICS & WEIGHTAGE BOT[/bold yellow]\n"),
         Align.center(p_1m)
     )
 

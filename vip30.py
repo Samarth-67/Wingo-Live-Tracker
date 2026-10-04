@@ -1,4 +1,3 @@
-
 import os
 import time
 import threading
@@ -13,7 +12,8 @@ console = Console()
 
 # ----------------- TELEGRAM CREDENTIALS -----------------
 TELEGRAM_TOKEN = "8581369291:AAFL1MOiCKYKS-25s01gguvDrGMTTnEpcP0"
-TARGET_GROUP_ID = "-3974852523"
+# हा जुना ID बॅकअप म्हणून ठेवला आहे. आता बॉट ऑटो-डिटेक्ट करेल.
+TARGET_GROUP_ID = "-3974852523" 
 PASS_30S = "1234"  # Telegram bot start/stop password
 # --------------------------------------------------------
 
@@ -25,8 +25,8 @@ def create_state(name, interval):
         "interval": interval,
         "last_processed_issue": None,
         
-        # 🔄 New Strategy Variables
-        "wait_for_trigger": True, # True असेल तेव्हा 2 समान रिझल्टची वाट बघेल
+        "wait_for_trigger": True, 
+        "ignore_trigger_until_issue": 0, # L4 फेल झाल्यावर नवीन ट्रिगरची वाट पाहण्यासाठी
         "pred_bs": "WAIT",
         "level": 1,
         
@@ -35,12 +35,13 @@ def create_state(name, interval):
         "stats": {"win": 0, "fail": 0, "total_trades": 0},
         "is_running": False,        
         "active_chat_id": None,    
-        "live_records": []
+        "live_records": [],
+        "telegram_status": "Waiting for command..." # UI मध्ये एरर पाहण्यासाठी
     }
 
 state_30s = create_state("WinGo 30S", "30S")
 
-def send_telegram_message_direct(chat_id, text):
+def send_telegram_message_direct(chat_id, text, state):
     if not chat_id: return
     
     # 🔗 रजिस्ट्रेशन लिंक 
@@ -51,14 +52,21 @@ def send_telegram_message_direct(chat_id, text):
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
-            api_session.post(url, json={
+            response = api_session.post(url, json={
                 "chat_id": chat_id, 
                 "text": text, 
                 "parse_mode": "Markdown",
                 "disable_web_page_preview": True
-            }, timeout=3)
-        except Exception:
-            pass
+            }, timeout=5)
+            
+            # जर मेसेज गेला नाही, तर UI मध्ये एरर दाखवा
+            if response.status_code != 200:
+                state["telegram_status"] = f"[red]Error {response.status_code}: {response.text}[/red]"
+            else:
+                state["telegram_status"] = "[green]OK (Message Sent)[/green]"
+        except Exception as e:
+            state["telegram_status"] = f"[red]Network Error: {e}[/red]"
+            
     threading.Thread(target=_send, daemon=True).start()
 
 def telegram_listener():
@@ -78,28 +86,29 @@ def telegram_listener():
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == PASS_30S:
                             state_30s["is_running"] = True
-                            state_30s["active_chat_id"] = chat_id
-                            send_telegram_message_direct(chat_id, f"✅ *[Trend Follower Bot]* Activated! Live Prediction is ON.")
+                            state_30s["active_chat_id"] = chat_id # ग्रुप ID ऑटो-डिटेक्ट करून सेव्ह करेल
+                            send_telegram_message_direct(chat_id, f"✅ *[Trend Follower Bot]* Activated! Live Prediction is ON for this Group.", state_30s)
                         else:
-                            send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
+                            send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.", state_30s)
                             
                     elif text.startswith("/stop"):
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == PASS_30S:
                             state_30s["is_running"] = False
-                            send_telegram_message_direct(chat_id, "🛑 *Bot Stopped Successfully!*")
+                            send_telegram_message_direct(chat_id, "🛑 *Bot Stopped Successfully!*", state_30s)
                         else:
-                            send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.")
+                            send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.", state_30s)
         except Exception:
             pass
         time.sleep(2)
 
 def send_telegram_signal(state, issue, prev_res_text=None):
-    target_chat_id = TARGET_GROUP_ID
+    # ज्या ग्रुपमधून कमांड आली तोच ID वापरेल, अन्यथा मॅन्युअल ID
+    target_chat_id = state.get("active_chat_id") or TARGET_GROUP_ID
     if not target_chat_id: return
 
     text = f"🚀 *{state['name']} Signal* 🚀\n"
-    text += f"⚙️ *Strategy:* Trend Follower (Trigger: 2 Same)\n\n"
+    text += f"⚙️ *Strategy:* Trend Follower\n\n"
     
     if prev_res_text:
         text += f"📊 *मागील निकाल:*\n"
@@ -110,7 +119,7 @@ def send_telegram_signal(state, issue, prev_res_text=None):
     
     if state["wait_for_trigger"] or state["pred_bs"] == "WAIT":
         if state["level"] > 1:
-             text += f"⏳ *Waiting for Trigger (2 Same) to Resume at L{state['level']}...*\n\n"
+             text += f"⏳ *Waiting for NEW Trigger (2 Same) to Resume at L{state['level']}...*\n\n"
         else:
              text += f"⏳ *Waiting for Trigger (Big-Big or Small-Small)...*\n\n"
     else:
@@ -119,11 +128,11 @@ def send_telegram_signal(state, issue, prev_res_text=None):
         text += f"💰 *Level:* L{state['level']}\n\n"
         text += f"💡 _Bet according to your level._"
         
-    send_telegram_message_direct(target_chat_id, text)
+    send_telegram_message_direct(target_chat_id, text, state)
 
 def fetch_history_records(url, state):
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://draw.ar-lottery01.com/",
     }
@@ -141,13 +150,17 @@ def fetch_history_records(url, state):
     return all_records
 
 def update_predictions(state):
-    # 1. ट्रिगर चेक करणे: जर बॉट थांबला असेल, तर मागील 2 निकाल समान आहेत का तपासणे.
+    # 1. ट्रिगर चेक करणे
     if state["wait_for_trigger"]:
         if len(state["full_history"]) >= 2:
-            last_2 = [x["bs"] for x in state["full_history"][:2]]
-            if last_2[0] == last_2[1]: 
-                # दोन समान रिझल्ट आले, ट्रिगर मिळाला!
-                state["wait_for_trigger"] = False
+            latest_issue_in_history = int(state["full_history"][0]["issue"])
+            
+            # L4 फेल झाल्यावर जुने रिझल्ट इग्नोर करून नवीन रिझल्टची वाट बघण्यासाठी
+            if latest_issue_in_history >= state.get("ignore_trigger_until_issue", 0):
+                last_2 = [x["bs"] for x in state["full_history"][:2]]
+                if last_2[0] == last_2[1]: 
+                    # दोन समान रिझल्ट आले, ट्रिगर मिळाला!
+                    state["wait_for_trigger"] = False
         
     # 2. प्रेडिक्शन सेट करणे
     if state["wait_for_trigger"]:
@@ -186,7 +199,6 @@ def process_strategy(state, records):
     state["full_history"].sort(key=lambda x: int(x["issue"]), reverse=True)
     state["full_history"] = state["full_history"][:60] 
 
-    # Initial Run
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
         next_issue_int = int(latest_issue) + 1
@@ -194,7 +206,6 @@ def process_strategy(state, records):
         if state["is_running"]: send_telegram_signal(state, str(next_issue_int))
         return True
 
-    # New Issue Arrived
     if state["last_processed_issue"] != latest_issue:
         if int(latest_issue) <= int(state["last_processed_issue"]): return False  
 
@@ -206,23 +217,22 @@ def process_strategy(state, records):
         if not state["wait_for_trigger"] and state["pred_bs"] != "WAIT":
             state["stats"]["total_trades"] += 1
             if state["pred_bs"] == latest_bs:
-                # WIN
                 state["stats"]["win"] += 1
                 res_status = f"{state['pred_bs']} ✅ WIN"
                 prev_res_text += f"🔹 Match: ✅ WIN (L{state['level']})\n"
                 state["level"] = 1 # जिंकल्यावर पुन्हा L1
-                # जिंकल्यावर Trend पुढे कॅरी होईल (wait_for_trigger False च राहील)
             else:
-                # FAIL
                 state["stats"]["fail"] += 1
                 res_status = f"{state['pred_bs']} ❌ FAIL"
                 prev_res_text += f"🔹 Match: ❌ FAIL (L{state['level']})\n"
                 state["level"] += 1
 
-                # 🚨 L4 फेल झाल्यावर बॉट थांबेल (पुन्हा ट्रिगरची वाट बघेल)
+                # 🚨 L4 फेल झाल्यावर बॉट थांबेल आणि नवीन ट्रिगरची वाट बघेल
                 if state["level"] == 5:
-                    prev_res_text += f"⚠️ *Level 4 Failed!* Bot Paused.\n⏳ Waiting for trigger (2 Same) to resume Level 5..."
+                    prev_res_text += f"⚠️ *Level 4 Failed!* Bot Paused.\n⏳ Waiting for NEW trigger (2 Same) to resume Level 5..."
                     state["wait_for_trigger"] = True
+                    # सध्याचे रिझल्ट इग्नोर करण्यासाठी २ नवीन रिझल्ट्सची अपेक्षा ठेवणे 
+                    state["ignore_trigger_until_issue"] = int(latest_issue) + 2
                 
         state["history"].append({
             "issue": latest_issue[-4:],
@@ -253,11 +263,11 @@ def worker_30s():
         time.sleep(1)
 
 def render_game_panel(state):
-    next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and state["last_processed_issue"].isdigit() else "Next"
+    next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and str(state["last_processed_issue"]).isdigit() else "Next"
     
     if state["wait_for_trigger"]:
         if state["level"] > 1:
-            ui_text = f"[yellow]PAUSED - WAITING TRIGGER FOR L{state['level']}[/]"
+            ui_text = f"[yellow]PAUSED - WAITING NEW TRIGGER FOR L{state['level']}[/]"
         else:
             ui_text = "[yellow]WAITING FOR TRIGGER (2 Same)[/]"
     else:
@@ -269,7 +279,8 @@ def render_game_panel(state):
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
     panel_text += f"⚙️ [bold]Strategy:[/] Trend Follower\n"
     panel_text += f"📏 [bold]Prediction:[/] {ui_text}\n"
-    panel_text += f"🕒 [bold]Status:[/] {timer_status} | Stats - W: [green]{state['stats']['win']}[/] F: [red]{state['stats']['fail']}[/]\n\n"
+    panel_text += f"🕒 [bold]Status:[/] {timer_status} | Stats - W: [green]{state['stats']['win']}[/] F: [red]{state['stats']['fail']}[/]\n"
+    panel_text += f"📱 [bold]Telegram Status:[/] {state['telegram_status']}\n\n"
     
     hist_table = Table(show_header=True, width=72)
     hist_table.add_column("Iss", justify="center")

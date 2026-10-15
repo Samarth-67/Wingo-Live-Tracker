@@ -11,8 +11,8 @@ from rich.live import Live
 console = Console()
 
 # ----------------- TELEGRAM CREDENTIALS -----------------
-TELEGRAM_TOKEN = "8774822707:AAEXqZWpgkxpS50BTNLjR230aJX6JI4p6Yo"
-TARGET_GROUP_ID = "-3992547967" 
+TELEGRAM_TOKEN = "8671287480:AAFXRiJpzJuPNeHP_k08cxdBt3A7B9q7YWw"
+TARGET_GROUP_ID = "-4435776391" 
 PASS_1M = "12345"  # Telegram bot start/stop password
 # --------------------------------------------------------
 
@@ -27,7 +27,6 @@ def create_state(name, interval):
         # --- स्ट्रॅटेजी व्हेरिएबल्स ---
         "wait_for_trigger": True, 
         "ignore_trigger_until_issue": 0, # L4 फेल झाल्यावर जुने रिझल्ट्स इग्नोर करण्यासाठी
-        "locked_pred_bs": "WAIT",        # ट्रिगर मिळाल्यावर ट्रेड यावर लॉक होईल
         "pred_bs": "WAIT",
         "level": 1,
         
@@ -91,7 +90,7 @@ def telegram_listener():
                         if len(parts) == 2 and parts[1] == PASS_1M:
                             state_1m["is_running"] = True
                             state_1m["active_chat_id"] = chat_id 
-                            send_telegram_message_direct(chat_id, f"✅ *[Fixed Trend Bot]* Activated! 1-Hour Cycle Started.", state_1m)
+                            send_telegram_message_direct(chat_id, f"✅ *[Trend Follower Bot]* Activated! 1-Hour Cycle Started.", state_1m)
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.", state_1m)
                             
@@ -111,10 +110,10 @@ def send_telegram_signal(state, issue, prev_res_text=None):
     if not target_chat_id: return
     
     if state["is_paused_phase"] and prev_res_text is None:
-        return # जर झोपलेला असेल आणि मागचा रिझल्ट सांगायचा नसेल तर मेसेज पाठवू नका
+        return # जर झोपलेला असेल आणि मागचा रिझल्ट सांगायचा असेल तरच मेसेज पाठवा
 
     text = f"🚀 *{state['name']} Signal* 🚀\n"
-    text += f"⚙️ *Strategy:* Fixed Trend Follower\n\n"
+    text += f"⚙️ *Strategy:* Trend Follower (Big-Big / Small-Small)\n\n"
     
     if prev_res_text:
         text += f"📊 *मागील निकाल:*\n"
@@ -126,7 +125,10 @@ def send_telegram_signal(state, issue, prev_res_text=None):
     if state["is_paused_phase"]:
          text += f"💤 *Bot is Resting for 1 Hour.*\n⏳ Please wait for the next active cycle.\n\n"
     elif state["wait_for_trigger"] or state["pred_bs"] == "WAIT":
-         text += f"⏳ *Waiting for Initial Pattern (B-B / S-S)...*\n\n"
+        if state["level"] > 1:
+             text += f"⏳ *Waiting for NEW Pattern (2 Same) to Resume at L{state['level']}...*\n\n"
+        else:
+             text += f"⏳ *Waiting for Pattern (Big-Big or Small-Small)...*\n\n"
     else:
         icon = "🟠 Big" if state["pred_bs"] == "Big" else "🔵 Small"
         text += f"🎯 *Prediction:* *{icon}*\n"
@@ -161,7 +163,6 @@ def check_time_cycle(state):
         state["is_paused_phase"] = not state["is_paused_phase"] 
         state["wait_for_trigger"] = True
         state["ignore_trigger_until_issue"] = 0 # नवीन सायकलला रिसेट
-        state["locked_pred_bs"] = "WAIT"
         state["pred_bs"] = "WAIT"
         state["level"] = 1
         
@@ -177,23 +178,24 @@ def update_predictions(state):
         state["pred_bs"] = "WAIT"
         return
 
-    # 1. ट्रिगर चेक करणे (फक्त सुरुवातीला 2 Big किंवा 2 Small बघण्यासाठी)
+    # 1. ट्रिगर चेक करणे (2 Big किंवा 2 Small)
     if state["wait_for_trigger"]:
         if len(state["full_history"]) >= 2:
             issue_new = int(state["full_history"][0]["issue"])
             issue_old = int(state["full_history"][1]["issue"])
             
-            # जुना रिझल्ट L4 फेल झालेल्या issue पेक्षा मोठा असला पाहिजे
+            # जुना रिझल्ट L4 फेल झालेल्या issue पेक्षा मोठा असला पाहिजे (जेणेकरून तोच जुना पॅटर्न पुन्हा वाचला जाणार नाही)
             if issue_old > state.get("ignore_trigger_until_issue", 0):
                 if state["full_history"][0]["bs"] == state["full_history"][1]["bs"]: # 2 समान आले
                     state["wait_for_trigger"] = False
-                    state["locked_pred_bs"] = state["full_history"][0]["bs"] # प्रेडिक्शन लॉक करा
 
     # 2. प्रेडिक्शन सेट करणे
     if state["wait_for_trigger"]:
         state["pred_bs"] = "WAIT"
     else:
-        state["pred_bs"] = state["locked_pred_bs"]
+        # Trend Follower: जो रिझल्ट आलाय तोच पुढे कॅरी करा (मग तो बिग असो वा स्मॉल)
+        if len(state["full_history"]) >= 1:
+            state["pred_bs"] = state["full_history"][0]["bs"]
 
 def process_strategy(state, records):
     if not records: return False
@@ -224,7 +226,6 @@ def process_strategy(state, records):
     state["full_history"].sort(key=lambda x: int(x["issue"]), reverse=True)
     state["full_history"] = state["full_history"][:60] 
 
-    # Initial Run
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
         next_issue_int = int(latest_issue) + 1
@@ -232,7 +233,6 @@ def process_strategy(state, records):
         if state["is_running"]: send_telegram_signal(state, str(next_issue_int))
         return True
 
-    # New Issue Arrived
     if state["last_processed_issue"] != latest_issue:
         if int(latest_issue) <= int(state["last_processed_issue"]): return False  
 
@@ -247,21 +247,21 @@ def process_strategy(state, records):
                 res_status = f"{state['pred_bs']} ✅ WIN"
                 prev_res_text += f"🔹 Match: ✅ WIN (L{state['level']})\n"
                 
-                # जिंकल्यावर फक्त L1 ला रिसेट होईल, पण ट्रिगरसाठी थांबणार नाही
+                # जिंकल्यावर पुन्हा L1 वर जा, पण नवीन ट्रिगरची वाट पाहू नका. ट्रेड कंटिन्यू राहील.
                 state["level"] = 1 
+                state["wait_for_trigger"] = False 
             else:
                 state["stats"]["fail"] += 1
                 res_status = f"{state['pred_bs']} ❌ FAIL"
                 prev_res_text += f"🔹 Match: ❌ FAIL (L{state['level']})\n"
                 state["level"] += 1
 
-                # 🚨 फक्त L4 फेल झाल्यावर बॉट थांबेल
+                # 🚨 L4 फेल झाल्यावर बॉट थांबेल आणि नवीन ट्रिगरची वाट पाहील
                 if state["level"] == 5:
-                    prev_res_text += f"⚠️ *Level 4 Failed!* Bot Paused.\n⏳ Waiting for NEW pattern (B-B / S-S) to start again..."
+                    prev_res_text += f"⚠️ *Level 4 Failed!* Bot Paused.\n⏳ Waiting for NEW pattern (Big-Big or Small-Small) to resume Level 5..."
                     state["wait_for_trigger"] = True
-                    state["level"] = 1
-                    state["locked_pred_bs"] = "WAIT"
-                    state["ignore_trigger_until_issue"] = int(latest_issue) + 2 # नवीन ट्रिगर शोधण्यासाठी
+                    # ज्या issue वर L4 फेल झालाय, त्याच्या पुढच्याच issue पासून नवीन पॅटर्न शोधायला हवा
+                    state["ignore_trigger_until_issue"] = int(latest_issue)
                 
         state["history"].append({
             "issue": latest_issue[-4:],
@@ -290,7 +290,7 @@ def worker_1m():
         records = fetch_history_records(url, state_1m)
         if records:
             process_strategy(state_1m, records)
-        time.sleep(2) 
+        time.sleep(2)
 
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and str(state["last_processed_issue"]).isdigit() else "Next"
@@ -305,7 +305,10 @@ def render_game_panel(state):
     else:
         phase_text = f"[bold cyan]ACTIVE PHASE ({time_str} left)[/]"
         if state["wait_for_trigger"]:
-            ui_text = "[yellow]WAITING FOR TRIGGER (B-B / S-S)[/]"
+            if state["level"] > 1:
+                ui_text = f"[yellow]WAITING NEW TRIGGER (2 Same) FOR L{state['level']}[/]"
+            else:
+                ui_text = "[yellow]WAITING FOR 2 SAME (B-B / S-S)[/]"
         else:
             s_color = "dark_orange" if state["pred_bs"] == "Big" else "bright_blue"
             ui_text = f"[{s_color}]{state['pred_bs']}[/] | L{state['level']}"
@@ -313,7 +316,7 @@ def render_game_panel(state):
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
-    panel_text += f"⚙️ [bold]Strategy:[/] Fixed Trend Follower (1M)\n"
+    panel_text += f"⚙️ [bold]Strategy:[/] Trend Follower (1M)\n"
     panel_text += f"⏱️ [bold]Cycle:[/] {phase_text}\n"
     panel_text += f"📏 [bold]Prediction:[/] {ui_text}\n"
     panel_text += f"🕒 [bold]Status:[/] {timer_status} | Stats - W: [green]{state['stats']['win']}[/] F: [red]{state['stats']['fail']}[/]\n"
@@ -336,7 +339,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_1m = render_game_panel(state_1m)
     return Group(
-        Align.center("[bold yellow]🚀 1M FIXED TREND FOLLOWER BOT[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 1M TREND FOLLOWER BOT[/bold yellow]\n"),
         Align.center(p_1m)
     )
 

@@ -12,7 +12,6 @@ console = Console()
 
 # ----------------- TELEGRAM CREDENTIALS -----------------
 TELEGRAM_TOKEN = "8774822707:AAEXqZWpgkxpS50BTNLjR230aJX6JI4p6Yo"
-# नवीन ग्रुप आयडी अपडेट केला आहे
 TARGET_GROUP_ID = "-3992547967" 
 PASS_30S = "1234"  # Telegram bot start/stop password
 # --------------------------------------------------------
@@ -127,10 +126,7 @@ def send_telegram_signal(state, issue, prev_res_text=None):
     if state["is_paused_phase"]:
          text += f"💤 *Bot is Resting for 1 Hour.*\n⏳ Please wait for the next active cycle.\n\n"
     elif state["wait_for_trigger"] or state["pred_bs"] == "WAIT":
-        if state["level"] > 1:
-             text += f"⏳ *Waiting for NEW Trigger (3 Same) to Resume at L{state['level']}...*\n\n"
-        else:
-             text += f"⏳ *Waiting for Pattern (3 Big or 3 Small)...*\n\n"
+         text += f"⏳ *Waiting for Pattern (3 Big or 3 Small)...*\n\n"
     else:
         icon = "🟠 Big" if state["pred_bs"] == "Big" else "🔵 Small"
         text += f"🎯 *Prediction:* *{icon}*\n"
@@ -248,6 +244,8 @@ def process_strategy(state, records):
                 state["stats"]["win"] += 1
                 res_status = f"{state['pred_bs']} ✅ WIN"
                 prev_res_text += f"🔹 Match: ✅ WIN (L{state['level']})\n"
+                
+                # जिंकल्यावर पुन्हा L1 ला जाईल आणि नवीन ट्रिगरची वाट बघेल
                 state["level"] = 1 
                 state["wait_for_trigger"] = True 
                 state["ignore_trigger_until_issue"] = int(latest_issue) + 3
@@ -255,12 +253,9 @@ def process_strategy(state, records):
                 state["stats"]["fail"] += 1
                 res_status = f"{state['pred_bs']} ❌ FAIL"
                 prev_res_text += f"🔹 Match: ❌ FAIL (L{state['level']})\n"
+                
+                # हरल्यावर लेव्हल पुढे जाईल (कोणताही पॉज न घेता)
                 state["level"] += 1
-
-                if state["level"] == 5:
-                    prev_res_text += f"⚠️ *Level 4 Failed!* Bot Paused.\n⏳ Waiting for NEW pattern (3 Same) to resume Level 5..."
-                    state["wait_for_trigger"] = True
-                    state["ignore_trigger_until_issue"] = int(latest_issue) + 3
                 
         state["history"].append({
             "issue": latest_issue[-4:],
@@ -304,10 +299,7 @@ def render_game_panel(state):
     else:
         phase_text = f"[bold cyan]ACTIVE PHASE ({time_str} left)[/]"
         if state["wait_for_trigger"]:
-            if state["level"] > 1:
-                ui_text = f"[yellow]WAITING NEW TRIGGER (3 Same) FOR L{state['level']}[/]"
-            else:
-                ui_text = "[yellow]WAITING FOR 3 BIG / 3 SMALL[/]"
+            ui_text = "[yellow]WAITING FOR 3 BIG / 3 SMALL[/]"
         else:
             s_color = "dark_orange" if state["pred_bs"] == "Big" else "bright_blue"
             ui_text = f"[{s_color}]{state['pred_bs']}[/] | L{state['level']}"
@@ -315,7 +307,7 @@ def render_game_panel(state):
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
-    panel_text += f"⚙️ [bold]Strategy:[/] 3 Pattern Break (Opposite)\n"
+    panel_text += f"⚙️ [bold]Strategy:[/] 3 Pattern Break (Opposite) - Continuous\n"
     panel_text += f"⏱️ [bold]Cycle:[/] {phase_text}\n"
     panel_text += f"📏 [bold]Prediction:[/] {ui_text}\n"
     panel_text += f"🕒 [bold]Status:[/] {timer_status} | Stats - W: [green]{state['stats']['win']}[/] F: [red]{state['stats']['fail']}[/]\n"
@@ -338,7 +330,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S 3-PATTERN BREAK BOT[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S CONTINUOUS 3-PATTERN BREAK BOT[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

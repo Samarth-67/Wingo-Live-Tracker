@@ -297,4 +297,26 @@ def render_game_panel(state):
     
     time_left = max(0, int(3600 - (time.time() - state["cycle_start_time"])))
     mins, secs = divmod(time_left, 60)
-    time_str = f"{mins:02d}:{secs:02
+    time_str = f"{mins:02d}:{secs:02d}"
+
+    if state["is_paused_phase"]:
+        ui_text = f"[magenta]SLEEPING FOR 1 HOUR (Time Left: {time_str})[/]"
+        phase_text = f"[bold magenta]SLEEP PHASE ({time_str} left)[/]"
+    else:
+        phase_text = f"[bold cyan]ACTIVE PHASE ({time_str} left)[/]"
+        if state["wait_for_trigger"]:
+            if state["level"] > 1:
+                ui_text = f"[yellow]WAITING NEW TRIGGER (2 Same) FOR L{state['level']}[/]"
+            else:
+                ui_text = "[yellow]WAITING FOR 2 SAME (B-B / S-S)[/]"
+        else:
+            s_color = "dark_orange" if state["pred_bs"] == "Big" else "bright_blue"
+            ui_text = f"[{s_color}]{state['pred_bs']}[/] | L{state['level']}"
+        
+    timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
+    
+    panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
+    panel_text += f"⚙️ [bold]Strategy:[/] Trend Follower (1M)\n"
+    panel_text += f"⏱️ [bold]Cycle:[/] {phase_text}\n"
+    panel_text += f"📏 [bold]Prediction:[/] {ui_text}\n"
+    panel_text += f"🕒 [bold]Status:[/] {timer_status

@@ -98,3 +98,251 @@ def telegram_listener():
                     elif text.startswith("/stop"):
                         parts = text.split()
                         if len(parts) == 2 and parts[1] == PASS_30S:
+                            state_30s["is_running"] = False
+                            send_telegram_message_direct(chat_id, "🛑 *Bot Stopped Successfully!*", state_30s)
+                        else:
+                            send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.", state_30s)
+        except Exception:
+            pass
+        time.sleep(2)
+
+def send_telegram_signal(state, issue, prev_res_text=None):
+    target_chat_id = state.get("active_chat_id") or TARGET_GROUP_ID
+    if not target_chat_id: return
+
+    text = f"🚀 *{state['name']} Signal* 🚀\n"
+    text += f"⚙️ *Strategy:* 3 Pattern Alternating (Continuous)\n\n"
+    
+    if prev_res_text:
+        text += f"📊 *मागील निकाल:*\n"
+        text += f"{prev_res_text}\n"
+        text += f"➖➖➖➖➖➖➖➖➖➖\n\n"
+        
+    text += f"🎟️ *Next Issue:* `{issue}`\n\n"
+    
+    if state["wait_for_trigger"] or state["pred_bs"] == "WAIT":
+         text += f"⏳ *Waiting for Pattern (3 Big or 3 Small)...*\n\n"
+    else:
+        icon = "🟠 Big" if state["pred_bs"] == "Big" else "🔵 Small"
+        text += f"🎯 *Prediction:* *{icon}*\n"
+        text += f"🔄 *Pattern Step:* {state['pattern_count']}/3\n"
+        text += f"💰 *Level:* L{state['level']}\n\n"
+        text += f"💡 _Bet according to your level._"
+        
+    send_telegram_message_direct(target_chat_id, text, state)
+
+def fetch_history_records(url, state):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://draw.ar-lottery01.com/",
+    }
+    all_records = []
+    try:
+        params = {"pageSize": 30, "pageNo": 1, "ts": int(time.time() * 1000)}
+        response = api_session.get(url, headers=headers, params=params, timeout=3)
+        if response.status_code == 200:
+            data = response.json()
+            if "data" in data and isinstance(data["data"], list): all_records.extend(data["data"])
+            elif "list" in data and isinstance(data["list"], list): all_records.extend(data["list"])
+            elif "data" in data and isinstance(data["data"], dict) and "list" in data["data"]: all_records.extend(data["data"]["list"])
+    except Exception:
+        pass
+    return all_records
+
+def check_time_cycle(state):
+    elapsed = time.time() - state["cycle_start_time"]
+    if elapsed >= 3600: # 3600 सेकंद = 1 तास पूर्ण झाल्यावर रिफ्रेश
+        state["cycle_start_time"] = time.time()
+        
+        # 1 तासानंतर पूर्णपणे रिफ्रेश करा (पॉज घेणार नाही)
+        state["wait_for_trigger"] = True
+        state["current_pred_bs"] = "WAIT"
+        state["pred_bs"] = "WAIT"
+        state["level"] = 1
+        state["pattern_count"] = 0
+        state["ignore_trigger_until_issue"] = 0
+        
+        target_chat_id = state.get("active_chat_id") or TARGET_GROUP_ID
+        if state["is_running"] and target_chat_id:
+            send_telegram_message_direct(target_chat_id, "⏳ *1 Hour Completed!*\n🔄 Strategy Refreshing...\n👀 Waiting for new 3 Big / 3 Small pattern.", state)
+
+def update_predictions(state):
+    # ट्रिगर चेक करणे (3 Big किंवा 3 Small)
+    if state["wait_for_trigger"]:
+        if len(state["full_history"]) >= 3:
+            latest_issue_in_history = int(state["full_history"][0]["issue"])
+            
+            # जिंकल्यावर जुने रिझल्ट इग्नोर करण्यासाठी
+            if latest_issue_in_history >= state.get("ignore_trigger_until_issue", 0):
+                last_3 = [x["bs"] for x in state["full_history"][:3]]
+                
+                if last_3 == ["Big", "Big", "Big"]:
+                    state["wait_for_trigger"] = False
+                    state["current_pred_bs"] = "Small" # 3 Big आले, आता 3 Small चे सायकल सुरु
+                    state["pattern_count"] = 1
+                elif last_3 == ["Small", "Small", "Small"]:
+                    state["wait_for_trigger"] = False
+                    state["current_pred_bs"] = "Big"   # 3 Small आले, आता 3 Big चे सायकल सुरु
+                    state["pattern_count"] = 1
+        
+    if state["wait_for_trigger"]:
+        state["pred_bs"] = "WAIT"
+    else:
+        state["pred_bs"] = state["current_pred_bs"]
+
+def process_strategy(state, records):
+    if not records: return False
+    state["live_records"] = records[:5]
+    
+    latest_item = records[0]
+    latest_issue = str(latest_item.get("issueNumber") or latest_item.get("issue") or "-")
+    latest_number_str = str(latest_item.get("number") or latest_item.get("drawNumber") or "-")
+    
+    if not (latest_number_str.isdigit() and latest_issue.isdigit()): return False
+    
+    num_int = int(latest_number_str)
+    latest_bs = "Big" if num_int >= 5 else "Small"
+
+    existing_issues = {x["issue"] for x in state["full_history"]}
+    for rec in records:
+        iss = str(rec.get("issueNumber") or rec.get("issue") or "")
+        num_str = str(rec.get("number") or rec.get("drawNumber") or "")
+        if iss.isdigit() and num_str.isdigit() and iss not in existing_issues:
+            n_val = int(num_str)
+            state["full_history"].append({
+                "issue": iss, 
+                "bs": "Big" if n_val >= 5 else "Small", 
+                "num": num_str
+            })
+            existing_issues.add(iss)
+                
+    state["full_history"].sort(key=lambda x: int(x["issue"]), reverse=True)
+    state["full_history"] = state["full_history"][:60] 
+
+    # Initial Run
+    if state["last_processed_issue"] is None:
+        state["last_processed_issue"] = latest_issue
+        next_issue_int = int(latest_issue) + 1
+        update_predictions(state)
+        if state["is_running"]: send_telegram_signal(state, str(next_issue_int))
+        return True
+
+    # New Issue Arrived
+    if state["last_processed_issue"] != latest_issue:
+        if int(latest_issue) <= int(state["last_processed_issue"]): return False  
+
+        prev_res_text = f"🎯 Result: *{latest_number_str}* ({latest_bs})\n"
+        res_status = "-"
+        current_logged_level = state["level"]
+
+        if not state["wait_for_trigger"] and state["pred_bs"] != "WAIT":
+            state["stats"]["total_trades"] += 1
+            if state["pred_bs"] == latest_bs:
+                state["stats"]["win"] += 1
+                res_status = f"{state['pred_bs']} ✅ WIN"
+                prev_res_text += f"🔹 Match: ✅ WIN (L{state['level']})\n"
+                
+                # जिंकल्यावर पुन्हा L1 ला जाईल आणि नवीन ट्रिगरची (3 Same) वाट बघेल
+                state["level"] = 1 
+                state["wait_for_trigger"] = True 
+                state["pattern_count"] = 0
+                state["ignore_trigger_until_issue"] = int(latest_issue) + 3 # सध्याचे 3 रिझल्ट इग्नोर करेल
+            else:
+                state["stats"]["fail"] += 1
+                res_status = f"{state['pred_bs']} ❌ FAIL"
+                prev_res_text += f"🔹 Match: ❌ FAIL (L{state['level']})\n"
+                
+                # हरल्यावर लेव्हल पुढे जाईल (कोणताही पॉज नाही)
+                state["level"] += 1
+                state["pattern_count"] += 1
+                
+                # जर एकाच रंगाचे/साईझचे ३ ट्रेड झाले असतील, तर पुढील ३ ट्रेडसाठी प्रेडिक्शन विरुद्ध करा
+                if state["pattern_count"] > 3:
+                    state["current_pred_bs"] = "Big" if state["current_pred_bs"] == "Small" else "Small"
+                    state["pattern_count"] = 1 # नवीन पॅटर्नसाठी पुन्हा 1 पासून सुरुवात
+                
+        state["history"].append({
+            "issue": latest_issue[-4:],
+            "pred": state["pred_bs"] if not state["wait_for_trigger"] else "WAIT",
+            "level": f"L{current_logged_level}", 
+            "res": "[green]✅ WIN[/]" if "WIN" in res_status else ("[red]❌ FAIL[/]" if "FAIL" in res_status else "-")
+        })
+        if len(state["history"]) > 4: state["history"].pop(0)
+
+        next_issue_int = int(latest_issue) + 1
+        update_predictions(state)
+
+        if state["is_running"]:
+            if prev_res_text == f"🎯 Result: *{latest_number_str}* ({latest_bs})\n":
+                prev_res_text = None 
+            send_telegram_signal(state, str(next_issue_int), prev_res_text)
+
+        state["last_processed_issue"] = latest_issue
+        return True
+    return False
+
+def worker_30s():
+    url = "https://draw.ar-lottery01.com/WinGo/WinGo_30S/GetHistoryIssuePage.json"
+    while True:
+        check_time_cycle(state_30s) 
+        records = fetch_history_records(url, state_30s)
+        if records:
+            process_strategy(state_30s, records)
+        time.sleep(1)
+
+def render_game_panel(state):
+    next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and str(state["last_processed_issue"]).isdigit() else "Next"
+    
+    time_left = max(0, int(3600 - (time.time() - state["cycle_start_time"])))
+    mins, secs = divmod(time_left, 60)
+    time_str = f"{mins:02d}:{secs:02d}"
+
+    phase_text = f"[bold cyan]ACTIVE CYCLE ({time_str} left)[/]"
+    if state["wait_for_trigger"]:
+        ui_text = "[yellow]WAITING FOR 3 BIG / 3 SMALL[/]"
+    else:
+        s_color = "dark_orange" if state["pred_bs"] == "Big" else "bright_blue"
+        ui_text = f"[{s_color}]{state['pred_bs']}[/] ({state['pattern_count']}/3) | L{state['level']}"
+        
+    timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
+    
+    panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
+    panel_text += f"⚙️ [bold]Strategy:[/] 3 Pattern Alternating (Continuous)\n"
+    panel_text += f"⏱️ [bold]Cycle:[/] {phase_text}\n"
+    panel_text += f"📏 [bold]Prediction:[/] {ui_text}\n"
+    panel_text += f"🕒 [bold]Status:[/] {timer_status} | Stats - W: [green]{state['stats']['win']}[/] F: [red]{state['stats']['fail']}[/]\n"
+    panel_text += f"📱 [bold]Telegram Status:[/] {state['telegram_status']}\n\n"
+    
+    hist_table = Table(show_header=True, width=72)
+    hist_table.add_column("Iss", justify="center")
+    hist_table.add_column("Pred (L)", justify="center")
+    hist_table.add_column("Result", justify="center")
+    
+    if not state["history"]:
+        hist_table.add_row("-", "-", "-")
+    else:
+        for h in state["history"]: 
+            p = f"{h['pred'][0]}({h['level']})" if h['pred'] != "WAIT" else "-"
+            hist_table.add_row(str(h["issue"]), p, str(h["res"])[0:13])
+            
+    return Panel(Group(Align.center(panel_text), Align.center(hist_table)), title=f"🤖 [bold cyan]{state['name']}[/]", border_style="cyan", width=78)
+
+def create_master_ui():
+    p_30s = render_game_panel(state_30s)
+    return Group(
+        Align.center("[bold yellow]🚀 30S 3-PATTERN CONTINUOUS BOT[/bold yellow]\n"),
+        Align.center(p_30s)
+    )
+
+if __name__ == "__main__":
+    t_list = threading.Thread(target=telegram_listener, daemon=True)
+    t_30s = threading.Thread(target=worker_30s, daemon=True)
+    
+    t_list.start()
+    t_30s.start()
+
+    with Live(create_master_ui(), console=console, refresh_per_second=4, screen=False) as live:
+        while True:
+            live.update(create_master_ui())
+            time.sleep(0.5)

@@ -24,16 +24,16 @@ def create_state(name, interval):
         "interval": interval,
         "last_processed_issue": None,
         
-        # --- नवीन स्ट्रॅटेजी व्हेरिएबल्स ---
         "wait_for_trigger": True, 
         "ignore_trigger_until_issue": 0, 
-        "current_pred_bs": "WAIT", # सध्याचे प्रेडिक्शन काय आहे
-        "pattern_count": 0,        # सध्याचे प्रेडिक्शन किती वेळा दिले गेले (३ वेळा द्यायचे आहे)
+        "current_pred_bs": "WAIT", 
+        "pattern_count": 0,        
         "pred_bs": "WAIT",
         "level": 1,
         
         # --- 1 Hour Cycle व्हेरिएबल्स ---
         "cycle_start_time": time.time(),
+        "is_paused_phase": False, # जेव्हा True असेल, तेव्हा बॉट झोपलेला असेल
         
         "full_history": [], 
         "history": [],
@@ -49,7 +49,6 @@ state_30s = create_state("WinGo 30S", "30S")
 def send_telegram_message_direct(chat_id, text, state):
     if not chat_id: return
     
-    # 🔗 रजिस्ट्रेशन लिंक 
     reg_link = "\n\n🔗 *Register Here:* https://www.DamanClub.win/#/register?invitationCode=1614313895334"
     if reg_link not in text:
         text += reg_link
@@ -91,7 +90,7 @@ def telegram_listener():
                         if len(parts) == 2 and parts[1] == PASS_30S:
                             state_30s["is_running"] = True
                             state_30s["active_chat_id"] = chat_id 
-                            send_telegram_message_direct(chat_id, f"✅ *[Continuous 3-Pattern Bot]* Activated! 1-Hour Cycle Started.", state_30s)
+                            send_telegram_message_direct(chat_id, f"✅ *[Continuous 3-Pattern Bot]* Activated!\n1-Hour Active Cycle Started. (It will auto-pause for 1 hour later)", state_30s)
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.", state_30s)
                             
@@ -109,6 +108,10 @@ def telegram_listener():
 def send_telegram_signal(state, issue, prev_res_text=None):
     target_chat_id = state.get("active_chat_id") or TARGET_GROUP_ID
     if not target_chat_id: return
+    
+    # जर बॉट पॉज मध्ये असेल आणि मागचा निकाल द्यायचा नसेल, तर काहीही पाठवू नका
+    if state["is_paused_phase"] and prev_res_text is None:
+        return
 
     text = f"🚀 *{state['name']} Signal* 🚀\n"
     text += f"⚙️ *Strategy:* 3 Pattern Alternating (Continuous)\n\n"
@@ -120,7 +123,9 @@ def send_telegram_signal(state, issue, prev_res_text=None):
         
     text += f"🎟️ *Next Issue:* `{issue}`\n\n"
     
-    if state["wait_for_trigger"] or state["pred_bs"] == "WAIT":
+    if state["is_paused_phase"]:
+         text += f"💤 *Bot is Resting for 1 Hour.*\n⏳ Please wait for the next active cycle.\n\n"
+    elif state["wait_for_trigger"] or state["pred_bs"] == "WAIT":
          text += f"⏳ *Waiting for Pattern (3 Big or 3 Small)...*\n\n"
     else:
         icon = "🟠 Big" if state["pred_bs"] == "Big" else "🔵 Small"
@@ -152,10 +157,12 @@ def fetch_history_records(url, state):
 
 def check_time_cycle(state):
     elapsed = time.time() - state["cycle_start_time"]
-    if elapsed >= 3600: # 3600 सेकंद = 1 तास पूर्ण झाल्यावर रिफ्रेश
+    if elapsed >= 3600: # 3600 सेकंद = 1 तास
         state["cycle_start_time"] = time.time()
         
-        # 1 तासानंतर पूर्णपणे रिफ्रेश करा (पॉज घेणार नाही)
+        # पॉज स्टेटस उलट करा (चालू असेल तर बंद, बंद असेल तर चालू)
+        state["is_paused_phase"] = not state["is_paused_phase"] 
+        
         state["wait_for_trigger"] = True
         state["current_pred_bs"] = "WAIT"
         state["pred_bs"] = "WAIT"
@@ -165,25 +172,31 @@ def check_time_cycle(state):
         
         target_chat_id = state.get("active_chat_id") or TARGET_GROUP_ID
         if state["is_running"] and target_chat_id:
-            send_telegram_message_direct(target_chat_id, "⏳ *1 Hour Completed!*\n🔄 Strategy Refreshing...\n👀 Waiting for new 3 Big / 3 Small pattern.", state)
+            if state["is_paused_phase"]:
+                send_telegram_message_direct(target_chat_id, "⏳ *1 Hour Active Phase Completed.*\n💤 Bot is now sleeping for 1 Hour. No trades will be given.", state)
+            else:
+                send_telegram_message_direct(target_chat_id, "✅ *1 Hour Sleep Completed.*\n🚀 Bot is now ACTIVE and automatically waiting for new 3 Big / 3 Small pattern.", state)
 
 def update_predictions(state):
-    # ट्रिगर चेक करणे (3 Big किंवा 3 Small)
+    if state["is_paused_phase"]:
+        state["pred_bs"] = "WAIT"
+        return
+
+    # ट्रिगर चेक करणे
     if state["wait_for_trigger"]:
         if len(state["full_history"]) >= 3:
             latest_issue_in_history = int(state["full_history"][0]["issue"])
             
-            # जिंकल्यावर जुने रिझल्ट इग्नोर करण्यासाठी
             if latest_issue_in_history >= state.get("ignore_trigger_until_issue", 0):
                 last_3 = [x["bs"] for x in state["full_history"][:3]]
                 
                 if last_3 == ["Big", "Big", "Big"]:
                     state["wait_for_trigger"] = False
-                    state["current_pred_bs"] = "Small" # 3 Big आले, आता 3 Small चे सायकल सुरु
+                    state["current_pred_bs"] = "Small"
                     state["pattern_count"] = 1
                 elif last_3 == ["Small", "Small", "Small"]:
                     state["wait_for_trigger"] = False
-                    state["current_pred_bs"] = "Big"   # 3 Small आले, आता 3 Big चे सायकल सुरु
+                    state["current_pred_bs"] = "Big"
                     state["pattern_count"] = 1
         
     if state["wait_for_trigger"]:
@@ -220,7 +233,6 @@ def process_strategy(state, records):
     state["full_history"].sort(key=lambda x: int(x["issue"]), reverse=True)
     state["full_history"] = state["full_history"][:60] 
 
-    # Initial Run
     if state["last_processed_issue"] is None:
         state["last_processed_issue"] = latest_issue
         next_issue_int = int(latest_issue) + 1
@@ -228,7 +240,6 @@ def process_strategy(state, records):
         if state["is_running"]: send_telegram_signal(state, str(next_issue_int))
         return True
 
-    # New Issue Arrived
     if state["last_processed_issue"] != latest_issue:
         if int(latest_issue) <= int(state["last_processed_issue"]): return False  
 
@@ -236,31 +247,28 @@ def process_strategy(state, records):
         res_status = "-"
         current_logged_level = state["level"]
 
-        if not state["wait_for_trigger"] and state["pred_bs"] != "WAIT":
+        if not state["wait_for_trigger"] and state["pred_bs"] != "WAIT" and not state["is_paused_phase"]:
             state["stats"]["total_trades"] += 1
             if state["pred_bs"] == latest_bs:
                 state["stats"]["win"] += 1
                 res_status = f"{state['pred_bs']} ✅ WIN"
                 prev_res_text += f"🔹 Match: ✅ WIN (L{state['level']})\n"
                 
-                # जिंकल्यावर पुन्हा L1 ला जाईल आणि नवीन ट्रिगरची (3 Same) वाट बघेल
                 state["level"] = 1 
                 state["wait_for_trigger"] = True 
                 state["pattern_count"] = 0
-                state["ignore_trigger_until_issue"] = int(latest_issue) + 3 # सध्याचे 3 रिझल्ट इग्नोर करेल
+                state["ignore_trigger_until_issue"] = int(latest_issue) + 3 
             else:
                 state["stats"]["fail"] += 1
                 res_status = f"{state['pred_bs']} ❌ FAIL"
                 prev_res_text += f"🔹 Match: ❌ FAIL (L{state['level']})\n"
                 
-                # हरल्यावर लेव्हल पुढे जाईल (कोणताही पॉज नाही)
                 state["level"] += 1
                 state["pattern_count"] += 1
                 
-                # जर एकाच रंगाचे/साईझचे ३ ट्रेड झाले असतील, तर पुढील ३ ट्रेडसाठी प्रेडिक्शन विरुद्ध करा
                 if state["pattern_count"] > 3:
                     state["current_pred_bs"] = "Big" if state["current_pred_bs"] == "Small" else "Small"
-                    state["pattern_count"] = 1 # नवीन पॅटर्नसाठी पुन्हा 1 पासून सुरुवात
+                    state["pattern_count"] = 1 
                 
         state["history"].append({
             "issue": latest_issue[-4:],
@@ -298,12 +306,16 @@ def render_game_panel(state):
     mins, secs = divmod(time_left, 60)
     time_str = f"{mins:02d}:{secs:02d}"
 
-    phase_text = f"[bold cyan]ACTIVE CYCLE ({time_str} left)[/]"
-    if state["wait_for_trigger"]:
-        ui_text = "[yellow]WAITING FOR 3 BIG / 3 SMALL[/]"
+    if state["is_paused_phase"]:
+        ui_text = f"[magenta]SLEEPING FOR 1 HOUR (Time Left: {time_str})[/]"
+        phase_text = f"[bold magenta]SLEEP PHASE ({time_str} left)[/]"
     else:
-        s_color = "dark_orange" if state["pred_bs"] == "Big" else "bright_blue"
-        ui_text = f"[{s_color}]{state['pred_bs']}[/] ({state['pattern_count']}/3) | L{state['level']}"
+        phase_text = f"[bold cyan]ACTIVE PHASE ({time_str} left)[/]"
+        if state["wait_for_trigger"]:
+            ui_text = "[yellow]WAITING FOR 3 BIG / 3 SMALL[/]"
+        else:
+            s_color = "dark_orange" if state["pred_bs"] == "Big" else "bright_blue"
+            ui_text = f"[{s_color}]{state['pred_bs']}[/] ({state['pattern_count']}/3) | L{state['level']}"
         
     timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
     
@@ -331,7 +343,7 @@ def render_game_panel(state):
 def create_master_ui():
     p_30s = render_game_panel(state_30s)
     return Group(
-        Align.center("[bold yellow]🚀 30S 3-PATTERN CONTINUOUS BOT[/bold yellow]\n"),
+        Align.center("[bold yellow]🚀 30S 3-PATTERN CYCLE BOT[/bold yellow]\n"),
         Align.center(p_30s)
     )
 

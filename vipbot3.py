@@ -30,10 +30,6 @@ def create_state(name, interval):
         "pred_bs": "WAIT",
         "level": 1,
         
-        # --- 1 Hour Cycle व्हेरिएबल्स ---
-        "cycle_start_time": time.time(),
-        "is_paused_phase": False, # True असेल तेव्हा बॉट 1 तासासाठी झोपलेला असेल
-        
         "full_history": [], 
         "history": [],
         "stats": {"win": 0, "fail": 0, "total_trades": 0},
@@ -90,7 +86,7 @@ def telegram_listener():
                         if len(parts) == 2 and parts[1] == PASS_1M:
                             state_1m["is_running"] = True
                             state_1m["active_chat_id"] = chat_id 
-                            send_telegram_message_direct(chat_id, f"✅ *[Trend Follower Bot]* Activated! 1-Hour Cycle Started.", state_1m)
+                            send_telegram_message_direct(chat_id, f"✅ *[Trend Follower Bot]* Activated! Bot is running continuously.", state_1m)
                         else:
                             send_telegram_message_direct(chat_id, "❌ Access Denied! Wrong Password.", state_1m)
                             
@@ -108,9 +104,6 @@ def telegram_listener():
 def send_telegram_signal(state, issue, prev_res_text=None):
     target_chat_id = state.get("active_chat_id") or TARGET_GROUP_ID
     if not target_chat_id: return
-    
-    if state["is_paused_phase"] and prev_res_text is None:
-        return # जर झोपलेला असेल आणि मागचा रिझल्ट सांगायचा असेल तरच मेसेज पाठवा
 
     text = f"🚀 *{state['name']} Signal* 🚀\n"
     text += f"⚙️ *Strategy:* Trend Follower (Big-Big / Small-Small)\n\n"
@@ -122,9 +115,7 @@ def send_telegram_signal(state, issue, prev_res_text=None):
         
     text += f"🎟️ *Next Issue:* `{issue}`\n\n"
     
-    if state["is_paused_phase"]:
-         text += f"💤 *Bot is Resting for 1 Hour.*\n⏳ Please wait for the next active cycle.\n\n"
-    elif state["wait_for_trigger"] or state["pred_bs"] == "WAIT":
+    if state["wait_for_trigger"] or state["pred_bs"] == "WAIT":
         if state["level"] > 1:
              text += f"⏳ *Waiting for NEW Pattern (2 Same) to Resume at L{state['level']}...*\n\n"
         else:
@@ -156,28 +147,7 @@ def fetch_history_records(url, state):
         pass
     return all_records
 
-def check_time_cycle(state):
-    elapsed = time.time() - state["cycle_start_time"]
-    if elapsed >= 3600: # 3600 सेकंद = 1 तास
-        state["cycle_start_time"] = time.time()
-        state["is_paused_phase"] = not state["is_paused_phase"] 
-        state["wait_for_trigger"] = True
-        state["ignore_trigger_until_issue"] = 0 # नवीन सायकलला रिसेट
-        state["pred_bs"] = "WAIT"
-        state["level"] = 1
-        
-        target_chat_id = state.get("active_chat_id") or TARGET_GROUP_ID
-        if state["is_running"] and target_chat_id:
-            if state["is_paused_phase"]:
-                send_telegram_message_direct(target_chat_id, "⏳ *1 Hour Active Phase Completed.*\n💤 Bot is now sleeping for 1 Hour. No trades will be given.", state)
-            else:
-                send_telegram_message_direct(target_chat_id, "✅ *1 Hour Sleep Completed.*\n🚀 Bot is now ACTIVE and waiting for Big-Big / Small-Small pattern.", state)
-
 def update_predictions(state):
-    if state["is_paused_phase"]:
-        state["pred_bs"] = "WAIT"
-        return
-
     # 1. ट्रिगर चेक करणे (2 Big किंवा 2 Small)
     if state["wait_for_trigger"]:
         if len(state["full_history"]) >= 2:
@@ -240,7 +210,7 @@ def process_strategy(state, records):
         res_status = "-"
         current_logged_level = state["level"]
 
-        if not state["wait_for_trigger"] and state["pred_bs"] != "WAIT" and not state["is_paused_phase"]:
+        if not state["wait_for_trigger"] and state["pred_bs"] != "WAIT":
             state["stats"]["total_trades"] += 1
             if state["pred_bs"] == latest_bs:
                 state["stats"]["win"] += 1
@@ -286,7 +256,6 @@ def process_strategy(state, records):
 def worker_1m():
     url = "https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json"
     while True:
-        check_time_cycle(state_1m) 
         records = fetch_history_records(url, state_1m)
         if records:
             process_strategy(state_1m, records)
@@ -294,30 +263,20 @@ def worker_1m():
 
 def render_game_panel(state):
     next_iss = str(int(state["last_processed_issue"]) + 1) if state["last_processed_issue"] and str(state["last_processed_issue"]).isdigit() else "Next"
-    
-    time_left = max(0, int(3600 - (time.time() - state["cycle_start_time"])))
-    mins, secs = divmod(time_left, 60)
-    time_str = f"{mins:02d}:{secs:02d}"
 
-    if state["is_paused_phase"]:
-        ui_text = f"[magenta]SLEEPING FOR 1 HOUR (Time Left: {time_str})[/]"
-        phase_text = f"[bold magenta]SLEEP PHASE ({time_str} left)[/]"
-    else:
-        phase_text = f"[bold cyan]ACTIVE PHASE ({time_str} left)[/]"
-        if state["wait_for_trigger"]:
-            if state["level"] > 1:
-                ui_text = f"[yellow]WAITING NEW TRIGGER (2 Same) FOR L{state['level']}[/]"
-            else:
-                ui_text = "[yellow]WAITING FOR 2 SAME (B-B / S-S)[/]"
+    if state["wait_for_trigger"]:
+        if state["level"] > 1:
+            ui_text = f"[yellow]WAITING NEW TRIGGER (2 Same) FOR L{state['level']}[/]"
         else:
-            s_color = "dark_orange" if state["pred_bs"] == "Big" else "bright_blue"
-            ui_text = f"[{s_color}]{state['pred_bs']}[/] | L{state['level']}"
+            ui_text = "[yellow]WAITING FOR 2 SAME (B-B / S-S)[/]"
+    else:
+        s_color = "dark_orange" if state["pred_bs"] == "Big" else "bright_blue"
+        ui_text = f"[{s_color}]{state['pred_bs']}[/] | L{state['level']}"
         
-    timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
+    timer_status = "[green]RUNNING CONTINUOUSLY[/]" if state["is_running"] else "[red]STOPPED[/]"
     
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
     panel_text += f"⚙️ [bold]Strategy:[/] Trend Follower (1M)\n"
-    panel_text += f"⏱️ [bold]Cycle:[/] {phase_text}\n"
     panel_text += f"📏 [bold]Prediction:[/] {ui_text}\n"
     panel_text += f"🕒 [bold]Status:[/] {timer_status} | Stats - W: [green]{state['stats']['win']}[/] F: [red]{state['stats']['fail']}[/]\n"
     panel_text += f"📱 [bold]Telegram Status:[/] {state['telegram_status']}\n\n"

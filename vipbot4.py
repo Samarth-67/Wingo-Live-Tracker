@@ -11,8 +11,8 @@ from rich.live import Live
 console = Console()
 
 # ----------------- TELEGRAM CREDENTIALS -----------------
-TELEGRAM_TOKEN = "8774822707:AAEXqZWpgkxpS50BTNLjR230aJX6JI4p6Yo"
-TARGET_GROUP_ID = "-3992547967" 
+TELEGRAM_TOKEN = "8865559708:AAE8FJf-msAj9lrfpnulPwOpZ0m9tb7O2D8"
+TARGET_GROUP_ID = "-5331537481" 
 PASS_30S = "1234"  # Telegram bot start/stop password
 # --------------------------------------------------------
 

@@ -168,7 +168,12 @@ def check_time_cycle(state):
         state["pred_bs"] = "WAIT"
         state["level"] = 1
         state["pattern_count"] = 0
-        state["ignore_trigger_until_issue"] = 0
+        
+        # झोपेतून उठताना जुने रेकॉर्ड्स इग्नोर करण्यासाठी
+        if not state["is_paused_phase"] and state["full_history"]:
+            state["ignore_trigger_until_issue"] = int(state["full_history"][0]["issue"])
+        else:
+            state["ignore_trigger_until_issue"] = 0
         
         target_chat_id = state.get("active_chat_id") or TARGET_GROUP_ID
         if state["is_running"] and target_chat_id:
@@ -249,26 +254,27 @@ def process_strategy(state, records):
 
         if not state["wait_for_trigger"] and state["pred_bs"] != "WAIT" and not state["is_paused_phase"]:
             state["stats"]["total_trades"] += 1
+            
             if state["pred_bs"] == latest_bs:
+                # WIN
                 state["stats"]["win"] += 1
                 res_status = f"{state['pred_bs']} ✅ WIN"
                 prev_res_text += f"🔹 Match: ✅ WIN (L{state['level']})\n"
                 
+                # जिंकल्यावर फक्त लेव्हल १ करा, पण थांबवू नका (wait_for_trigger = False राहील)
                 state["level"] = 1 
-                state["wait_for_trigger"] = True 
-                state["pattern_count"] = 0
-                state["ignore_trigger_until_issue"] = int(latest_issue) + 3 
             else:
+                # FAIL
                 state["stats"]["fail"] += 1
                 res_status = f"{state['pred_bs']} ❌ FAIL"
                 prev_res_text += f"🔹 Match: ❌ FAIL (L{state['level']})\n"
-                
                 state["level"] += 1
-                state["pattern_count"] += 1
                 
-                if state["pattern_count"] > 3:
-                    state["current_pred_bs"] = "Big" if state["current_pred_bs"] == "Small" else "Small"
-                    state["pattern_count"] = 1 
+            # WIN असो वा FAIL, पॅटर्न पुढे सरकत राहील (1/3 -> 2/3 -> 3/3)
+            state["pattern_count"] += 1
+            if state["pattern_count"] > 3:
+                state["current_pred_bs"] = "Big" if state["current_pred_bs"] == "Small" else "Small"
+                state["pattern_count"] = 1 
                 
         state["history"].append({
             "issue": latest_issue[-4:],
@@ -317,7 +323,7 @@ def render_game_panel(state):
             s_color = "dark_orange" if state["pred_bs"] == "Big" else "bright_blue"
             ui_text = f"[{s_color}]{state['pred_bs']}[/] ({state['pattern_count']}/3) | L{state['level']}"
         
-    timer_status = "[green]RUNNING[/]" if state["is_running"] else "[red]STOPPED[/]"
+    timer_status = "[green]RUNNING CONTINUOUSLY[/]" if state["is_running"] else "[red]STOPPED[/]"
     
     panel_text = f"🎯 [bold white]Issue: {next_iss}[/]\n"
     panel_text += f"⚙️ [bold]Strategy:[/] 3 Pattern Alternating (Continuous)\n"
